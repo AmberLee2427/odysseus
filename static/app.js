@@ -41,6 +41,7 @@ import cookbookModule from './js/cookbook.js';
 import groupModule from './js/group.js';
 import * as researchPanelModule from './js/research/panel.js';
 import ttsModule from './js/tts-ai.js';
+import speechControlsModule from './js/speechControls.js';
 import spinnerModule from './js/spinner.js';
 import { initKeyboardShortcuts } from './js/keyboard-shortcuts.js';
 import { initSidebarLayout, syncRailSide } from './js/sidebar-layout.js';
@@ -4020,6 +4021,7 @@ function startOdysseusApp() {
   
   // Ensure proper initial state
   voiceRecorderModule.init();
+  speechControlsModule.init();
   if (censorModule) censorModule.init();
 
   // Auto-focus message input on load

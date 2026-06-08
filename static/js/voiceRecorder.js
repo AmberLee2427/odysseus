@@ -67,6 +67,9 @@ function _resetRecordingUI() {
   if (window._updateSendBtnIcon) {
     setTimeout(window._updateSendBtnIcon, 50);
   }
+  window.dispatchEvent(new CustomEvent('odysseus:recording-state', {
+    detail: { recording: false },
+  }));
 }
 
 /**
@@ -130,13 +133,40 @@ async function transcribeOnServer(audioBlob) {
 /**
  * Insert transcribed text into the chat input
  */
-function insertTranscription(text, showToast) {
+function insertTranscription(text, showToast, target = null) {
   if (!text) return;
-  const input = document.getElementById('message');
+  const input = target && target.isConnected ? target : document.getElementById('message');
   if (!input) return;
 
-  const existing = input.value.trim();
-  input.value = existing ? existing + ' ' + text : text;
+  if (input.isContentEditable) {
+    input.focus();
+    const selection = window.getSelection();
+    const hasSelection = selection && selection.rangeCount && input.contains(selection.anchorNode);
+    if (hasSelection) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      const prefix = range.startOffset > 0 ? ' ' : '';
+      const node = document.createTextNode(prefix + text);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      const existing = (input.textContent || '').trim();
+      input.appendChild(document.createTextNode((existing ? ' ' : '') + text));
+    }
+  } else {
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const prefix = before && !/\s$/.test(before) ? ' ' : '';
+    const suffix = after && !/^\s/.test(after) ? ' ' : '';
+    input.value = before + prefix + text + suffix + after;
+    const caret = before.length + prefix.length + text.length + suffix.length;
+    if (input.setSelectionRange) input.setSelectionRange(caret, caret);
+  }
 
   // Trigger auto-resize and icon update
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -148,7 +178,7 @@ function insertTranscription(text, showToast) {
 /**
  * Start voice recording
  */
-export function startRecording(onFileCreated, showToast, showError) {
+export function startRecording(onFileCreated, showToast, showError, target = null) {
   // Check for secure context (getUserMedia requires HTTPS or localhost)
   if (!window.isSecureContext) {
     if (showError) showError('Microphone requires HTTPS. Use a reverse proxy with SSL or access via localhost.');
@@ -183,7 +213,7 @@ export function startRecording(onFileCreated, showToast, showError) {
         if (provider === 'browser') {
           const transcript = stopBrowserSTT();
           if (transcript) {
-            insertTranscription(transcript, showToast);
+            insertTranscription(transcript, showToast, target);
           } else {
             if (showToast) showToast('No speech detected');
             const audioFile = new File([audioBlob], `voice-message-${Date.now()}.webm`, { type: 'audio/webm' });
@@ -195,7 +225,7 @@ export function startRecording(onFileCreated, showToast, showError) {
           try {
             const transcript = await transcribeOnServer(audioBlob);
             if (transcript) {
-              insertTranscription(transcript, showToast);
+              insertTranscription(transcript, showToast, target);
             } else {
               if (showToast) showToast('No speech detected');
             }
@@ -218,6 +248,9 @@ export function startRecording(onFileCreated, showToast, showError) {
       mediaRecorder.start();
       isRecording = true;
       recordingStartTime = new Date();
+      window.dispatchEvent(new CustomEvent('odysseus:recording-state', {
+        detail: { recording: true, target },
+      }));
 
       // Start browser STT if that's the provider
       if (_sttProvider === 'browser') {

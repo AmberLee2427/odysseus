@@ -2307,6 +2307,46 @@ body.bg-pattern-sparkles {
       color: var(--fg);
       background: color-mix(in srgb, var(--fg) 9%, transparent);
     }
+
+    /* Shared dictate/read-aloud controls for editors and substantial fields. */
+    .speech-field-controls {
+      position: fixed;
+      z-index: 10050;
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+      backdrop-filter: blur(8px);
+    }
+    .speech-field-controls[hidden] { display: none; }
+    .speech-field-btn {
+      width: 27px;
+      height: 27px;
+      padding: 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      opacity: 0.58;
+      cursor: pointer;
+    }
+    .speech-field-btn svg { width: 15px; height: 15px; }
+    .speech-field-btn:hover,
+    .speech-field-btn.active {
+      opacity: 1;
+      background: color-mix(in srgb, var(--fg) 10%, transparent);
+    }
+    .speech-field-btn.active { color: var(--accent, var(--red)); }
+    .speech-field-btn:disabled {
+      opacity: 0.2;
+      cursor: default;
+    }
     /* Plan mode: "Approve & Run" affordance under a proposed plan */
     .plan-approve-bar {
       margin: 8px 0 2px;
