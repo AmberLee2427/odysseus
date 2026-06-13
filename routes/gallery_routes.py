@@ -25,6 +25,59 @@ GALLERY_UPLOAD_MAX_BYTES = int(os.getenv("ODYSSEUS_GALLERY_UPLOAD_MAX_BYTES", st
 GALLERY_TRANSFORM_UPLOAD_MAX_BYTES = int(os.getenv("ODYSSEUS_GALLERY_TRANSFORM_UPLOAD_MAX_BYTES", str(25 * 1024 * 1024)))
 
 
+def _comfyui_server_url() -> str:
+    configured = os.getenv("COMFYUI_SERVER_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    host = "host.docker.internal" if os.path.exists("/.dockerenv") else "127.0.0.1"
+    return f"http://{host}:{os.getenv('COMFYUI_PORT', '8188')}"
+
+
+def _comfyui_prompt_metadata(history_entry: dict) -> tuple[str, str]:
+    graph = {}
+    prompt_data = history_entry.get("prompt")
+    if isinstance(prompt_data, list) and len(prompt_data) > 2 and isinstance(prompt_data[2], dict):
+        graph = prompt_data[2]
+
+    positive_prompts = []
+    fallback_prompts = []
+    models = []
+    for node in graph.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+        title = str((node.get("_meta") or {}).get("title") or "").lower()
+        is_negative = "negative" in title
+        for key in ("high_level_description", "prompt", "text"):
+            value = inputs.get(key)
+            if isinstance(value, str) and value.strip() and not is_negative:
+                target = positive_prompts if ("positive" in title or key != "text") else fallback_prompts
+                target.append(value.strip())
+        for key in ("ckpt_name", "unet_name", "model_name"):
+            value = inputs.get(key)
+            if isinstance(value, str) and value.strip():
+                models.append(value.strip())
+    prompt = max(positive_prompts or fallback_prompts or [""], key=len)
+    model = models[0] if models else "ComfyUI"
+    return prompt, model
+
+
+def _comfyui_output_images(history: dict):
+    for prompt_id, entry in history.items():
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status") or {}
+        if status.get("status_str") != "success":
+            continue
+        prompt, model = _comfyui_prompt_metadata(entry)
+        for output in (entry.get("outputs") or {}).values():
+            if not isinstance(output, dict):
+                continue
+            for image in output.get("images") or []:
+                if isinstance(image, dict) and image.get("type") == "output" and image.get("filename"):
+                    yield prompt_id, image, prompt, model
+
+
 def _sanitize_gallery_filename(filename: str) -> str:
     """Return a local filename safe to join under generated_images."""
     safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", Path(str(filename or "")).name)[:128]
@@ -177,6 +230,82 @@ def setup_gallery_routes() -> APIRouter:
             return resp
         finally:
             db.close()
+
+    @router.post("/api/gallery/sync-comfyui")
+    async def sync_comfyui_outputs(request: Request):
+        """Import recent completed ComfyUI outputs into the caller's gallery."""
+        import httpx
+
+        user = require_privilege(request, "can_generate_images")
+        base = _comfyui_server_url()
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
+                response = await client.get(f"{base}/history", params={"max_items": 100})
+                response.raise_for_status()
+                history = response.json()
+                if not isinstance(history, dict):
+                    raise ValueError("ComfyUI returned invalid history")
+
+                imported = 0
+                duplicates = 0
+                errors = 0
+                db = SessionLocal()
+                try:
+                    GALLERY_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+                    for _prompt_id, image, prompt, model in _comfyui_output_images(history):
+                        try:
+                            image_response = await client.get(
+                                f"{base}/view",
+                                params={
+                                    "filename": image["filename"],
+                                    "subfolder": image.get("subfolder", ""),
+                                    "type": "output",
+                                },
+                            )
+                            image_response.raise_for_status()
+                            content = image_response.content
+                            file_hash = hashlib.sha256(content).hexdigest()
+                            duplicate_q = db.query(GalleryImage).filter(
+                                GalleryImage.file_hash == file_hash,
+                                GalleryImage.is_active == True,
+                            )
+                            if user:
+                                duplicate_q = duplicate_q.filter(GalleryImage.owner == user)
+                            if duplicate_q.first():
+                                duplicates += 1
+                                continue
+
+                            ext = Path(str(image["filename"])).suffix.lower().lstrip(".") or "png"
+                            if ext not in {"png", "jpg", "jpeg", "webp", "gif"}:
+                                errors += 1
+                                continue
+                            stored_filename = f"{uuid.uuid4().hex[:12]}.{ext}"
+                            (GALLERY_IMAGE_DIR / stored_filename).write_bytes(content)
+                            exif = _extract_exif(content)
+                            db.add(GalleryImage(
+                                id=str(uuid.uuid4()),
+                                filename=stored_filename,
+                                prompt=prompt or Path(str(image["filename"])).stem,
+                                model=model,
+                                tags="comfyui",
+                                owner=user,
+                                file_hash=file_hash,
+                                file_size=len(content),
+                                width=exif.get("width"),
+                                height=exif.get("height"),
+                            ))
+                            db.commit()
+                            imported += 1
+                        except Exception:
+                            db.rollback()
+                            errors += 1
+                            logger.exception("Failed to import ComfyUI output %r", image.get("filename"))
+                finally:
+                    db.close()
+        except Exception as exc:
+            raise HTTPException(502, f"Could not sync ComfyUI outputs: {exc}")
+
+        return {"ok": True, "imported": imported, "duplicates": duplicates, "errors": errors}
 
     # ---- POST /api/gallery/{id}/replace ----
     @router.post("/api/gallery/{image_id}/replace")

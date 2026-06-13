@@ -11,6 +11,7 @@ GATED_IMAGE_FUNCTIONS = {
     "upscale_image_local",
     "remove_background",
     "enhance_face",
+    "sync_comfyui_outputs",
 }
 
 

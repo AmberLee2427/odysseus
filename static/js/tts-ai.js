@@ -165,10 +165,32 @@ class AITTSManager {
         if (!this.browserVoice) return null;
         const voices = window.speechSynthesis.getVoices();
         const target = this.browserVoice.toLowerCase();
-        // Try exact match first, then partial
-        return voices.find(v => v.name.toLowerCase() === target) ||
+        // Browser settings store voiceURI; retain exact-name fallback for
+        // existing settings saved before the dropdown was introduced.
+        return voices.find(v => (v.voiceURI || '').toLowerCase() === target) ||
+               voices.find(v => v.name.toLowerCase() === target) ||
                voices.find(v => v.name.toLowerCase().includes(target)) ||
                null;
+    }
+
+    _waitForBrowserVoices(timeoutMs = 1500) {
+        const synth = window.speechSynthesis;
+        if (synth.getVoices().length > 0) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve) => {
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                synth.removeEventListener('voiceschanged', finish);
+                resolve();
+            };
+
+            synth.addEventListener('voiceschanged', finish);
+            setTimeout(finish, timeoutMs);
+        });
     }
 
     async play(text) {
@@ -197,7 +219,9 @@ class AITTSManager {
         }
     }
 
-    _playBrowser(plainText) {
+    async _playBrowser(plainText) {
+        await this._waitForBrowserVoices();
+
         return new Promise((resolve, reject) => {
             const utterance = new SpeechSynthesisUtterance(plainText);
             const voice = this._findBrowserVoice();

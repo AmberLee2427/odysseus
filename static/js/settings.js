@@ -814,6 +814,7 @@ async function initTtsSettings() {
   var modelSelect = el('set-ttsModelSelect');
   var modelInput = el('set-ttsModelInput');
   var voiceSelect = el('set-ttsVoiceSelect');
+  var browserVoiceSelect = el('set-ttsBrowserVoiceSelect');
   var voiceInput = el('set-ttsVoiceInput');
   var modelRow = el('set-ttsModelRow');
   var voiceRow = el('set-ttsVoiceRow');
@@ -822,10 +823,42 @@ async function initTtsSettings() {
   var ttsMsg = el('set-ttsSettingsMsg');
   var ttsEnabledToggle = el('set-ttsEnabledToggle');
   var ttsConfigWrap = provSel ? provSel.closest('div[style*="flex-direction"]') : null;
+  var browserVoicePreference = '';
 
   function isEndpoint() { return provSel.value.startsWith('endpoint:'); }
   function getModel() { return isEndpoint() ? modelSelect.value : modelInput.value; }
-  function getVoice() { return isEndpoint() ? voiceSelect.value : voiceInput.value; }
+  function getVoice() {
+    if (isEndpoint()) return voiceSelect.value;
+    if (provSel.value === 'browser') return browserVoiceSelect.value || browserVoicePreference;
+    return voiceInput.value;
+  }
+
+  function populateBrowserVoices(selectedValue) {
+    if (!browserVoiceSelect || !('speechSynthesis' in window)) return;
+    var voices = window.speechSynthesis.getVoices().slice().sort(function(a, b) {
+      return (a.lang || '').localeCompare(b.lang || '') || a.name.localeCompare(b.name);
+    });
+    browserVoiceSelect.innerHTML = '<option value="">System default</option>';
+    voices.forEach(function(voice) {
+      var opt = document.createElement('option');
+      opt.value = voice.voiceURI || voice.name;
+      opt.textContent = voice.name + (voice.lang ? ' — ' + voice.lang : '') +
+        (voice.default ? ' (default)' : '') + (voice.localService ? ' (local)' : '');
+      browserVoiceSelect.appendChild(opt);
+    });
+    if (selectedValue && Array.from(browserVoiceSelect.options).some(function(opt) { return opt.value === selectedValue; })) {
+      browserVoiceSelect.value = selectedValue;
+      browserVoicePreference = selectedValue;
+      return;
+    }
+    if (selectedValue) {
+      var byName = voices.find(function(voice) { return voice.name === selectedValue; });
+      if (byName) {
+        browserVoiceSelect.value = byName.voiceURI || byName.name;
+        browserVoicePreference = browserVoiceSelect.value;
+      }
+    }
+  }
 
   function updateVisibility() {
     var prov = provSel.value;
@@ -834,10 +867,13 @@ async function initTtsSettings() {
     speedRow.style.display = prov === 'disabled' ? 'none' : 'flex';
     if (isEndpoint()) {
       modelSelect.style.display = ''; modelInput.style.display = 'none';
-      voiceSelect.style.display = ''; voiceInput.style.display = 'none';
+      voiceSelect.style.display = ''; browserVoiceSelect.style.display = 'none'; voiceInput.style.display = 'none';
+    } else if (prov === 'browser') {
+      modelSelect.style.display = 'none'; modelInput.style.display = '';
+      voiceSelect.style.display = 'none'; browserVoiceSelect.style.display = ''; voiceInput.style.display = 'none';
     } else {
       modelSelect.style.display = 'none'; modelInput.style.display = '';
-      voiceSelect.style.display = 'none'; voiceInput.style.display = prov === 'disabled' ? 'none' : '';
+      voiceSelect.style.display = 'none'; browserVoiceSelect.style.display = 'none'; voiceInput.style.display = prov === 'disabled' ? 'none' : '';
     }
   }
 
@@ -859,6 +895,8 @@ async function initTtsSettings() {
     if (settings.tts_provider) provSel.value = settings.tts_provider;
     if (settings.tts_model) { modelSelect.value = settings.tts_model; modelInput.value = settings.tts_model; }
     if (settings.tts_voice) { voiceSelect.value = settings.tts_voice; voiceInput.value = settings.tts_voice; }
+    browserVoicePreference = settings.tts_voice || '';
+    populateBrowserVoices(browserVoicePreference);
     if (settings.tts_speed) { speedSelect.value = settings.tts_speed; }
     if (ttsEnabledToggle) ttsEnabledToggle.checked = settings.tts_enabled !== false;
   } catch (e) { console.warn('Failed to load TTS settings', e); }
@@ -871,11 +909,16 @@ async function initTtsSettings() {
   }
   syncTtsDisabled();
   updateVisibility();
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.addEventListener('voiceschanged', function() {
+      populateBrowserVoices(browserVoicePreference);
+    });
+  }
 
   async function saveTTS() {
     try {
       await fetch('/api/auth/settings', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tts_enabled: ttsEnabledToggle ? ttsEnabledToggle.checked : true, tts_provider: provSel.value, tts_model: getModel() || 'tts-1', tts_voice: getVoice() || 'alloy', tts_speed: speedSelect.value || '1' }) });
+        body: JSON.stringify({ tts_enabled: ttsEnabledToggle ? ttsEnabledToggle.checked : true, tts_provider: provSel.value, tts_model: getModel() || 'tts-1', tts_voice: getVoice() || (provSel.value === 'browser' ? '' : 'alloy'), tts_speed: speedSelect.value || '1' }) });
       ttsMsg.textContent = 'Saved'; ttsMsg.style.color = 'var(--fg)'; setTimeout(() => { ttsMsg.textContent = ''; }, 2000);
       if (window.aiTTSManager) window.aiTTSManager.checkAvailability();
       window.dispatchEvent(new CustomEvent('odysseus:speech-settings-changed'));
@@ -891,13 +934,17 @@ async function initTtsSettings() {
     var prov = provSel.value;
     if (prov === 'local') voiceInput.value = 'af_heart';
     else if (isEndpoint()) { voiceSelect.value = 'alloy'; modelSelect.value = 'tts-1'; }
-    else if (prov === 'browser') { voiceInput.value = ''; voiceInput.placeholder = 'OS default voice'; }
+    else if (prov === 'browser') { populateBrowserVoices(browserVoicePreference); }
     updateVisibility();
     saveTTS();
   });
   modelSelect.addEventListener('change', saveAndClearCache);
   modelInput.addEventListener('change', saveTTS);
   voiceSelect.addEventListener('change', saveAndClearCache);
+  browserVoiceSelect.addEventListener('change', function() {
+    browserVoicePreference = browserVoiceSelect.value;
+    saveAndClearCache();
+  });
   voiceInput.addEventListener('change', saveTTS);
   speedSelect.addEventListener('change', saveAndClearCache);
   if (ttsEnabledToggle) ttsEnabledToggle.addEventListener('change', function() { syncTtsDisabled(); saveTTS(); });
@@ -930,8 +977,8 @@ async function initTtsSettings() {
           if (voiceVal) {
             var voices = window.speechSynthesis.getVoices();
             var target = voiceVal.toLowerCase();
-            var match = voices.find(function(v) { return v.name.toLowerCase() === target; }) ||
-                        voices.find(function(v) { return v.name.toLowerCase().includes(target); });
+            var match = voices.find(function(v) { return (v.voiceURI || '').toLowerCase() === target; }) ||
+                        voices.find(function(v) { return v.name.toLowerCase() === target; });
             if (match) utt.voice = match;
           }
           utt.rate = parseFloat(speedSelect.value) || 1;
@@ -1048,7 +1095,12 @@ async function initSttSettings() {
     } catch (e) { sttMsg.textContent = 'Failed to save'; sttMsg.style.color = 'var(--red)'; }
   }
 
-  provSel.addEventListener('change', function() { updateVisibility(); saveSTT(); });
+  provSel.addEventListener('change', function() {
+    if (sttEnabledToggle) sttEnabledToggle.checked = provSel.value !== 'disabled';
+    syncSttDisabled();
+    updateVisibility();
+    saveSTT();
+  });
   modelSelect.addEventListener('change', saveSTT);
   modelInput.addEventListener('change', saveSTT);
   langInput.addEventListener('change', saveSTT);

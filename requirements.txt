@@ -39,6 +39,7 @@ cryptography
 bcrypt
 mcp
 pyotp
+websockets>=15,<16
 qrcode[pil]
 croniter
 pytest

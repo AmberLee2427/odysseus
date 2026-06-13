@@ -65,3 +65,24 @@ def test_permissions_policy_locks_camera_and_geolocation_but_allows_self_microph
     # would also block the app's own same-origin voice/STT button.
     assert "microphone=()" not in policy
     assert "microphone=(self)" in policy
+
+
+def test_csp_allows_comfyui_on_same_lan_hostname(monkeypatch):
+    monkeypatch.delenv("COMFYUI_URL", raising=False)
+    monkeypatch.setenv("COMFYUI_PORT", "8188")
+
+    response = _client(base_url="http://192.168.12.238:7000").get("/")
+
+    assert "frame-src 'self' http://192.168.12.238:8188;" in response.headers[
+        "content-security-policy"
+    ]
+
+
+def test_csp_uses_fixed_comfyui_origin_override(monkeypatch):
+    monkeypatch.setenv("COMFYUI_URL", "https://comfy.example.test/workflows")
+
+    response = _client().get("/")
+
+    assert "frame-src 'self' https://comfy.example.test;" in response.headers[
+        "content-security-policy"
+    ]

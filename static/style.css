@@ -2343,9 +2343,15 @@ body.bg-pattern-sparkles {
       background: color-mix(in srgb, var(--fg) 10%, transparent);
     }
     .speech-field-btn.active { color: var(--accent, var(--red)); }
-    .speech-field-btn:disabled {
-      opacity: 0.2;
-      cursor: default;
+    .speech-field-btn.unavailable {
+      opacity: 0.28;
+    }
+    .speech-settings-highlight {
+      animation: speech-settings-highlight 1.6s ease-out;
+    }
+    @keyframes speech-settings-highlight {
+      0%, 35% { border-color: var(--accent, var(--red)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, var(--red)) 25%, transparent); }
+      100% { border-color: var(--border); box-shadow: none; }
     }
     /* Plan mode: "Approve & Run" affordance under a proposed plan */
     .plan-approve-bar {
@@ -4967,6 +4973,124 @@ body.bg-pattern-sparkles {
     #cookbook-modal { z-index: 260; }
     .modal.hidden { display:none; }
 
+    .comfyui-panel {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: calc(var(--icon-rail-w, 0px) + var(--sidebar-w, 0px));
+      right: 0;
+      z-index: 240;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--bg);
+      transition: left 0.25s ease;
+    }
+    .comfyui-panel.hidden { display: none; }
+    .comfyui-panel-header {
+      min-height: 40px;
+      padding: 5px 8px 5px 12px;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--fg);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+    }
+    .comfyui-panel-url {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: 0.45;
+      font-size: 10px;
+    }
+    .comfyui-panel-header button {
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 4px 8px;
+      background: var(--bg);
+      color: var(--fg);
+      cursor: pointer;
+      font: inherit;
+    }
+    .comfyui-panel-header button:hover { border-color: var(--red); }
+    #comfyui-close { font-size: 18px; line-height: 14px; padding: 4px 7px; }
+    .comfyui-frame-wrap { flex: 1; min-height: 0; }
+    #comfyui-frame { width: 100%; height: 100%; display: block; border: 0; background: #111; }
+
+    .terminal-modal-content {
+      width: min(760px, 82vw);
+      height: min(500px, 72vh);
+      min-width: 360px;
+      min-height: 240px;
+      padding: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .terminal-modal-content .modal-header {
+      flex-shrink: 0;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .terminal-status {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 7px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .terminal-status[data-state="connected"] { color: #8fbc8f; border-color: #8fbc8f66; }
+    .terminal-status[data-state="error"] { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+    .terminal-scope {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: 0.45;
+      font-size: 10px;
+    }
+    .terminal-header-btn {
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 4px 8px;
+      background: var(--bg);
+      color: var(--fg);
+      cursor: pointer;
+      font: inherit;
+    }
+    .terminal-header-btn:hover { border-color: var(--red); }
+    .terminal-screen {
+      flex: 1;
+      min-height: 0;
+      padding: 8px;
+      box-sizing: border-box;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg);
+    }
+    .terminal-screen .xterm { height: 100%; }
+
+    @media (max-width: 768px) {
+      .comfyui-panel { left: 0; }
+      .comfyui-panel-url { display: none; }
+      .comfyui-panel-header { padding-left: 8px; }
+      .terminal-modal-content {
+        width: 100vw;
+        height: 100dvh;
+        min-width: 0;
+        min-height: 0;
+        border-radius: 0;
+      }
+      .terminal-scope { display: none; }
+    }
+
     /* Tool windows open centered in the CHAT AREA (the space right of the
        sidebar + icon rail), rather than the full viewport.
        We narrow the overlay to the chat area so its flex-centering lands the
@@ -4978,6 +5102,7 @@ body.bg-pattern-sparkles {
     @media (min-width: 769px) {
       #calendar-modal,
       #gallery-modal,
+      #terminal-modal,
       #tasks-modal,
       #memory-modal,
       #doclib-modal,
@@ -6621,6 +6746,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       #cookbook-modal .modal-content,
       #tasks-modal .modal-content,
       #calendar-modal .modal-content,
+      #terminal-modal .terminal-modal-content,
       #memory-modal .memory-modal-content,
       #settings-modal .settings-modal-content,
       #email-lib-modal .modal-content,

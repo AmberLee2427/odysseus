@@ -1,0 +1,20 @@
+[project]
+name = "cosci"
+version = "0.1.0"
+description = "A personal Antigravity-based co-scientist loop for microlensing research."
+requires-python = ">=3.12"
+dependencies = [
+  "arxiv>=4",
+  "google-antigravity>=0.1.1",
+  "python-dotenv>=1",
+  "pydantic>=2",
+  "rich>=13",
+  "typer>=0.12",
+]
+
+[project.scripts]
+cosci = "cosci.cli:app"
+cosci-mcp = "cosci.mcp_server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

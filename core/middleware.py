@@ -3,6 +3,7 @@
 
 import os
 import secrets
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,6 +16,28 @@ from starlette.responses import Response
 # same value from this module. Never persisted or exposed externally.
 INTERNAL_TOOL_TOKEN = os.environ.get("ODYSSEUS_INTERNAL_TOKEN") or secrets.token_hex(32)
 INTERNAL_TOOL_HEADER = "X-Odysseus-Internal-Token"
+
+
+def comfyui_origin_for_request(request: Request) -> str:
+    """Return the browser-reachable ComfyUI origin for this Odysseus request."""
+    configured = os.getenv("COMFYUI_URL", "").strip()
+    if configured:
+        parsed = urlparse(configured)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+
+    scheme = os.getenv("COMFYUI_SCHEME", "").strip().lower() or request.url.scheme
+    if scheme not in {"http", "https"}:
+        scheme = "http"
+    try:
+        port = int(os.getenv("COMFYUI_PORT", "8188"))
+    except ValueError:
+        port = 8188
+    port = port if 1 <= port <= 65535 else 8188
+    hostname = request.url.hostname or "127.0.0.1"
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    return f"{scheme}://{hostname}:{port}"
 
 
 def is_cors_preflight(method: str, headers) -> bool:
@@ -106,6 +129,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "frame-ancestors 'self'"
             )
         else:
+            comfyui_origin = comfyui_origin_for_request(request)
             response.headers["X-Frame-Options"] = "DENY"
             # NOTE: `style-src 'unsafe-inline'` is intentionally retained.
             # `static/index.html` and `static/login.html` ship inline <style>
@@ -121,7 +145,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "img-src 'self' data: blob:; "
                 "media-src 'self' blob:; "
                 "connect-src 'self'; "
-                "frame-src 'self'; "
+                f"frame-src 'self' {comfyui_origin}; "
                 "frame-ancestors 'none'"
             )
         return response

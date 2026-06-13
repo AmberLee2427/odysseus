@@ -7,6 +7,7 @@
 
 import voiceRecorderModule from './voiceRecorder.js';
 import uiModule from './ui.js';
+import settingsModule from './settings.js';
 
 const MIC_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/><path d="M8 22h8"/></svg>';
 const STOP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
@@ -71,10 +72,22 @@ function _syncAvailability() {
   if (!toolbar) return;
   const sttReady = voiceRecorderModule._sttProvider && voiceRecorderModule._sttProvider !== 'disabled';
   const ttsReady = !!(window.aiTTSManager?.available && window.aiTTSManager?._provider !== 'disabled');
-  micButton.disabled = !sttReady;
+  micButton.classList.toggle('unavailable', !sttReady);
+  micButton.setAttribute('aria-disabled', sttReady ? 'false' : 'true');
   micButton.title = sttReady ? 'Dictate into this field' : 'Set up Speech to Text in Settings';
-  speakButton.disabled = !ttsReady;
+  speakButton.classList.toggle('unavailable', !ttsReady);
+  speakButton.setAttribute('aria-disabled', ttsReady ? 'false' : 'true');
   speakButton.title = ttsReady ? 'Read selection or field aloud' : 'Set up Text to Speech in Settings';
+}
+
+function _openSpeechSettings(id) {
+  settingsModule.open('ai');
+  setTimeout(() => {
+    const card = document.getElementById(id);
+    card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card?.classList.add('speech-settings-highlight');
+    setTimeout(() => card?.classList.remove('speech-settings-highlight'), 1600);
+  }, 50);
 }
 
 function _showFor(target) {
@@ -95,7 +108,11 @@ function _hideSoon() {
 }
 
 function _startDictation() {
-  if (!activeTarget || micButton.disabled) return;
+  if (!activeTarget) return;
+  if (micButton.classList.contains('unavailable')) {
+    _openSpeechSettings('speech-stt-settings');
+    return;
+  }
   if (voiceRecorderModule.getIsRecording()) {
     voiceRecorderModule.stopRecording();
     return;
@@ -109,7 +126,11 @@ function _startDictation() {
 }
 
 function _readAloud() {
-  if (!activeTarget || speakButton.disabled) return;
+  if (!activeTarget) return;
+  if (speakButton.classList.contains('unavailable')) {
+    _openSpeechSettings('speech-tts-settings');
+    return;
+  }
   const manager = window.aiTTSManager;
   if (manager.isPlaying || manager._processing) {
     manager.stop();

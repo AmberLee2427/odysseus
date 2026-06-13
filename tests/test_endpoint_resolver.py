@@ -54,6 +54,9 @@ class TestBuildChatUrl:
     def test_local_endpoint(self):
         assert build_chat_url("http://localhost:8000/v1") == "http://localhost:8000/v1/chat/completions"
 
+    def test_local_codex_provider(self):
+        assert build_chat_url("http://127.0.0.1:7000/api/codex-provider/v1") == "http://127.0.0.1:7000/api/codex-provider/v1/chat/completions"
+
     def test_ollama_cloud_native_api(self):
         assert build_chat_url("https://ollama.com/api") == "https://ollama.com/api/chat"
 
@@ -70,6 +73,9 @@ class TestBuildChatUrl:
 class TestBuildModelsUrl:
     def test_openai_models(self):
         assert build_models_url("https://api.openai.com/v1") == "https://api.openai.com/v1/models"
+
+    def test_local_codex_provider_models(self):
+        assert build_models_url("http://127.0.0.1:7000/api/codex-provider/v1") == "http://127.0.0.1:7000/api/codex-provider/v1/models"
 
     def test_ollama_tags(self):
         assert build_models_url("https://ollama.com/api") == "https://ollama.com/api/tags"

@@ -1150,6 +1150,38 @@ function _wireUploadTile() {
   });
 }
 
+async function _syncComfyUI({ silent = false } = {}) {
+  const button = document.getElementById('gallery-comfyui-sync');
+  if (button?.dataset.syncing === '1') return;
+  if (button) {
+    button.dataset.syncing = '1';
+    button.disabled = true;
+    button.textContent = 'Syncing...';
+  }
+  try {
+    const response = await fetch(`${API_BASE}/api/gallery/sync-comfyui`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Sync failed');
+    const result = await response.json();
+    if (result.imported > 0) {
+      uiModule.showToast(`Imported ${result.imported} ComfyUI image${result.imported === 1 ? '' : 's'}`);
+      await _fetchLibrary(false);
+    } else if (!silent) {
+      uiModule.showToast(result.errors ? 'ComfyUI sync completed with errors' : 'ComfyUI gallery is up to date');
+    }
+  } catch (error) {
+    if (!silent) uiModule.showError(`ComfyUI sync failed: ${error.message}`);
+  } finally {
+    if (button) {
+      button.dataset.syncing = '0';
+      button.disabled = false;
+      button.textContent = 'Sync ComfyUI';
+    }
+  }
+}
+
 // Shimmer placeholder tiles shown while the FIRST page loads, so the grid
 // doesn't pop from empty → full (re-opens keep the old photos via
 // stale-while-revalidate, so skeletons only show when there's nothing yet).
@@ -1957,6 +1989,7 @@ export function openGallery() {
             <option value="oldest">Oldest</option>
           </select>
           <button class="gallery-select-btn gallery-toolbar-action" id="gallery-select-btn" title="Select for bulk actions"><span style="position:relative;top:1px;">Select</span></button>
+          <button class="gallery-select-btn gallery-toolbar-action" id="gallery-comfyui-sync" title="Import recent completed ComfyUI outputs">Sync ComfyUI</button>
         </div>
         <div class="gallery-album-chips" id="gallery-filter-chips" style="margin-top:0;"></div>
         <div class="memory-bulk-bar hidden" id="gallery-bulk-bar" style="margin-bottom:4px;">
@@ -2022,6 +2055,7 @@ export function openGallery() {
     }
     closeGallery();
   });
+  document.getElementById('gallery-comfyui-sync')?.addEventListener('click', () => _syncComfyUI());
 
   // Double-click the Edit tab to rename what's being edited. The label
   // shows up everywhere it's referenced by id (#gallery-editor-tab), so a
@@ -2753,6 +2787,7 @@ export function openGallery() {
   //    fetch fails or takes a moment, the cached view sticks around.
   _fetchAlbums();
   _fetchLibrary(false);
+  _syncComfyUI({ silent: true });
   searchInput.focus();
 }
 

@@ -1637,7 +1637,12 @@ async def stream_agent_loop(
     # the fenced-block path is used instead of native function calling.
     _is_ollama_native = _is_ollama_native_url(endpoint_url or "")
     _ollama_openai_compat = _is_ollama_openai_compat_url(endpoint_url or "")
-    if _endpoint_supports is True:
+    _is_codex_provider = "/api/codex-provider/v1" in (endpoint_url or "")
+    if _is_codex_provider:
+        # Codex app-server is the model/auth transport here. Odysseus remains
+        # responsible for executing agent tools through its fenced-tool loop.
+        _is_api_model = False
+    elif _endpoint_supports is True:
         _is_api_model = True
     elif (
         _endpoint_supports is False

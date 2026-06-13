@@ -22,6 +22,8 @@ import memoryModule from './js/memory.js';
 import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
+import comfyuiModule from './js/comfyui.js';
+import terminalModule from './js/terminal.js';
 import tasksModule from './js/tasks.js';
 import calendarModule from './js/calendar.js';
 import notesModule from './js/notes.js';
@@ -835,6 +837,16 @@ function initializeEventListeners() {
     });
   }
 
+  const toolComfyuiBtn = el('tool-comfyui-btn');
+  if (toolComfyuiBtn) {
+    toolComfyuiBtn.addEventListener('click', () => comfyuiModule.toggle());
+  }
+
+  const toolTerminalBtn = el('tool-terminal-btn');
+  if (toolTerminalBtn) {
+    toolTerminalBtn.addEventListener('click', () => terminalModule.toggle());
+  }
+
   // ── Cookbook modal toggle ──
   const toolCookbookBtn = el('tool-cookbook-btn');
   if (toolCookbookBtn) {
@@ -1009,6 +1021,8 @@ function initializeEventListeners() {
     },
     '/calendar': () => calendarModule && calendarModule.openCalendar(),
     '/cookbook': () => document.getElementById('tool-cookbook-btn')?.click(),
+    '/comfyui':   () => comfyuiModule.open(),
+    '/terminal':  () => terminalModule.open(),
     '/email':    () => {
       // Collapse the wide sidebar → icon rail (48px) so the user keeps
       // navigation visible alongside the fullscreen email view.
@@ -1135,6 +1149,11 @@ function initializeEventListeners() {
     .then(d => {
       window._isAdmin = !!d.is_admin;
       if (d.is_admin && userBarAdmin) userBarAdmin.style.display = '';
+      ['tool-terminal-btn', 'rail-terminal'].forEach(id => {
+        const terminalLauncher = el(id);
+        if (terminalLauncher) terminalLauncher.style.display = d.is_admin ? '' : 'none';
+      });
+      applyUIVis(loadUIVis());
       const userBarName = el('user-bar-name');
       const userBarAvatar = el('user-bar-avatar');
       if (userBarName && d.username) {
@@ -1186,6 +1205,14 @@ function initializeEventListeners() {
       }
     })
     .catch(() => {});
+  window.addEventListener('odysseus:speech-settings-changed', async () => {
+    try {
+      const settings = await (await fetch(`${API_BASE}/api/auth/settings`, { credentials: 'same-origin' })).json();
+      const ttsOff = settings.tts_enabled === false || !settings.tts_provider || settings.tts_provider === 'disabled';
+      const overflowTts = el('overflow-tts-btn');
+      if (overflowTts) overflowTts.style.display = ttsOff ? 'none' : '';
+    } catch (_) {}
+  });
 
   // Session sort dropdown
   const sortBtn = el('session-sort-btn');
@@ -2473,6 +2500,8 @@ function initializeEventListeners() {
     'tool-calendar':       '#tool-calendar-btn',
     'tool-compare':        '#tool-compare-btn',
     'tool-cookbook':       '#tool-cookbook-btn',
+    'tool-comfyui':        '#tool-comfyui-btn',
+    'tool-terminal':       '#tool-terminal-btn',
     'tool-research':       '#tool-research-btn',
     'tool-gallery':        '#tool-gallery-btn',
     'tool-library':        '#tool-library-btn',
@@ -2516,8 +2545,9 @@ function initializeEventListeners() {
       // section-drag-reorder uses a body class instead of inline styles
       if (key === 'section-drag-reorder') return;
       const visible = key in state ? state[key] !== false : !UI_VIS_DEFAULT_OFF.has(key);
+      const permitted = key !== 'tool-terminal' || window._isAdmin === true;
       document.querySelectorAll(selector).forEach(el => {
-        el.style.display = visible ? '' : 'none';
+        el.style.display = visible && permitted ? '' : 'none';
       });
     });
     // Drag reorder: use body class so dynamically created handles are covered
@@ -3488,6 +3518,8 @@ function startOdysseusApp() {
     'rail-compare':   'tool-compare-btn',
     'rail-research':  'tool-research-btn',
     'rail-cookbook':   'tool-cookbook-btn',
+    'rail-comfyui':    'tool-comfyui-btn',
+    'rail-terminal':   'tool-terminal-btn',
     'rail-archive':   'tool-library-btn',
     'rail-gallery':   'tool-gallery-btn',
     'rail-tasks':     'tool-tasks-btn',

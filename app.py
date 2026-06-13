@@ -54,7 +54,7 @@ from core.constants import (
     REQUEST_TIMEOUT, OPENAI_API_KEY,
 )
 from core.database import SessionLocal, ApiToken
-from core.middleware import SecurityHeadersMiddleware, is_cors_preflight
+from core.middleware import SecurityHeadersMiddleware, comfyui_origin_for_request, is_cors_preflight
 from core.auth import AuthManager
 from core.exceptions import (
     SessionNotFoundError, InvalidFileUploadError,
@@ -173,6 +173,7 @@ if AUTH_ENABLED:
         "/login",
     }
     AUTH_EXEMPT_PREFIXES = ["/static"]
+    AUTH_EXEMPT_PREFIXES.append("/api/codex-provider/v1")
     # Dynamic paths whose own handler proves identity via a path-embedded
     # secret instead of the session/bearer auth. The route handler at
     # routes/task_routes.py validates the per-task `webhook_token` itself
@@ -594,6 +595,9 @@ app.include_router(setup_embedding_routes())
 from routes.model_routes import setup_model_routes
 app.include_router(setup_model_routes(model_discovery))
 
+from routes.codex_provider_routes import setup_codex_provider_routes
+app.include_router(setup_codex_provider_routes())
+
 # GitHub Copilot device-flow login
 from routes.copilot_routes import setup_copilot_routes
 app.include_router(setup_copilot_routes())
@@ -645,6 +649,10 @@ app.include_router(calendar_router)
 # Shell (user-facing command execution)
 from routes.shell_routes import setup_shell_routes
 app.include_router(setup_shell_routes())
+
+# Admin-only interactive terminal inside the Odysseus container
+from routes.terminal_routes import setup_terminal_routes
+app.include_router(setup_terminal_routes(auth_manager))
 
 # Cookbook (model download/serve/cache, cookbook state sync)
 from routes.cookbook_routes import setup_cookbook_routes
@@ -778,6 +786,14 @@ async def serve_memory(request: Request):
 async def serve_gallery(request: Request):
     return await serve_index(request)
 
+@app.get("/comfyui")
+async def serve_comfyui(request: Request):
+    return await serve_index(request)
+
+@app.get("/terminal")
+async def serve_terminal(request: Request):
+    return await serve_index(request)
+
 @app.get("/tasks")
 async def serve_tasks(request: Request):
     return await serve_index(request)
@@ -805,6 +821,10 @@ async def get_version():
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+@app.get("/api/comfyui/config")
+async def comfyui_config(request: Request) -> Dict[str, str]:
+    return {"url": comfyui_origin_for_request(request)}
 
 @app.get("/api/ready")
 async def readiness_check() -> JSONResponse:

@@ -389,6 +389,10 @@ Key settings:
 | `SEARXNG_SECRET` | generated on first Docker boot | Optional SearXNG cookie/CSRF secret. Leave blank unless you need to pin it. |
 | `APP_BIND` | `127.0.0.1` | Docker Compose host bind address for the web UI. Use `0.0.0.0` only for intentional LAN/reverse-proxy access. |
 | `APP_PORT` | `7000` | Docker Compose host port for the web UI. |
+| `COMFYUI_PORT` | `8188` | ComfyUI sidebar-panel port on the same hostname used to open Odysseus. |
+| `COMFYUI_URL` | -- | Optional fixed ComfyUI origin override. |
+| `COMFYUI_SCHEME` | request scheme | Optional `http`/`https` override when ComfyUI uses a different scheme. |
+| `COMFYUI_SERVER_URL` | auto-detected | Optional server-side ComfyUI URL used to sync completed outputs into Gallery. |
 | `AUTH_ENABLED` | `true` | Enable/disable login |
 | `LOCALHOST_BYPASS` | `false` | Development-only auth bypass for loopback requests. Keep false for shared/network deployments. |
 | `SECURE_COOKIES` | `false` | Set true when serving Odysseus through HTTPS at a trusted proxy or private access gateway. |
@@ -397,6 +401,16 @@ Key settings:
 | `CHROMADB_PORT` | `8100` | ChromaDB port for manual host runs. Docker overrides this to `8000`. |
 | `EMBEDDING_URL` | -- | OpenAI-compatible embeddings endpoint |
 | `ODYSSEUS_CHAT_UPLOAD_MAX_BYTES` | `10485760` | Chat/agent attachment cap in bytes. Raise for larger local PDFs or text documents. |
+
+To use the ComfyUI sidebar panel from other machines on the same LAN, start
+ComfyUI on a LAN-reachable interface:
+
+```bash
+python main.py --listen 0.0.0.0 --port 8188
+```
+
+Opening Odysseus at `http://192.168.12.238:7000` will then embed ComfyUI from
+`http://192.168.12.238:8188`. Keep both services limited to a trusted network.
 
 ### Built-in MCP servers (optional setup)
 

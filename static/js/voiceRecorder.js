@@ -179,6 +179,12 @@ function insertTranscription(text, showToast, target = null) {
  * Start voice recording
  */
 export function startRecording(onFileCreated, showToast, showError, target = null) {
+  if (_sttProvider === 'browser' && !(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    if (showError) showError('Browser speech recognition is not supported here. Choose Local or an API endpoint in Settings.');
+    _resetRecordingUI();
+    return;
+  }
+
   // Check for secure context (getUserMedia requires HTTPS or localhost)
   if (!window.isSecureContext) {
     if (showError) showError('Microphone requires HTTPS. Use a reverse proxy with SSL or access via localhost.');

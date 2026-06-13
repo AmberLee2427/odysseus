@@ -268,6 +268,8 @@ def _is_ollama_native_url(url: str) -> bool:
         return False
     host = parsed.hostname or ""
     path = (parsed.path or "").rstrip("/")
+    if path.startswith("/api/codex-provider/"):
+        return False
     if _host_match(url, "ollama.com"):
         return True
     if path.startswith("/v1"):
