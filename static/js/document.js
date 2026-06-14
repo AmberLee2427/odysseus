@@ -3445,6 +3445,7 @@ import * as Modals from './modalManager.js';
 
   function switchToDoc(docId) {
     if (!docs.has(docId)) return;
+    _closeDocumentInfo();
     _hideLoadingOverlay();
     if (_diffModeActive) exitDiffMode(true);
 
@@ -3812,6 +3813,7 @@ import * as Modals from './modalManager.js';
         <span style="flex:1"></span>
         <button id="doc-export-pdf-btn" class="doc-action-icon-btn" title="Export PDF" style="display:none;opacity:0.7;gap:4px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg> <span style="font-size:11px;">Export PDF</span></button>
         <button id="doc-pdf-view-btn" class="doc-action-icon-btn" title="Toggle PDF view" style="display:none;opacity:0.7;gap:4px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> <span style="font-size:11px;">PDF</span></button>
+        <button id="doc-info-btn" class="doc-action-icon-btn" title="Document info" aria-label="Document info" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="17"/><circle cx="12" cy="7.5" r="0.7" fill="currentColor" stroke="none"/></svg></button>
         <select id="doc-language-select" class="doc-language-select">
           <option value="">type</option>
           <option value="python">python</option>
@@ -3990,6 +3992,7 @@ import * as Modals from './modalManager.js';
       const _preview = pane.querySelector('#doc-header-preview-btn');  // single Run ▶ for python/bash/js/csv
       const _exportPdf = pane.querySelector('#doc-export-pdf-btn');
       const _pdfView = pane.querySelector('#doc-pdf-view-btn');
+      const _info = pane.querySelector('#doc-info-btn');
       if (_footer && _split) {
         // Footer order (left → right): Undo, Run/Preview, Lang, …, Copy/Export.
         // The X close was here too but is now redundant with the per-tab close
@@ -4007,6 +4010,7 @@ import * as Modals from './modalManager.js';
         if (_split) {
           if (_pdfView)      _split.before(_pdfView);
           if (_exportPdf)    _split.before(_exportPdf);
+          if (_info)         _split.before(_info);
           if (_versionBadge) _split.before(_versionBadge);
           if (_streamInd)    _split.before(_streamInd);
         }
@@ -4164,6 +4168,7 @@ import * as Modals from './modalManager.js';
     document.getElementById('doc-mobile-copy')?.addEventListener('click', () => copyDocument());
     // Save, copy, run, export, delete, preview toggles are now in per-tab context menu
     document.getElementById('doc-version-badge').addEventListener('click', toggleVersionHistory);
+    document.getElementById('doc-info-btn').addEventListener('click', toggleDocumentInfo);
     document.getElementById('doc-version-close').addEventListener('click', _closeVersionPanel);
     // Reflect the current language as a small icon left of the type select.
     const _syncLangIcon = () => {
@@ -8107,6 +8112,104 @@ import * as Modals from './modalManager.js';
     await loadDocument(draftId);
     _renderComposeAttachments();
     if (uiModule) uiModule.showToast(`Reply draft ready — "${att.filename}" attached`);
+  }
+
+  let _docInfoPopover = null;
+
+  function _closeDocumentInfo() {
+    if (_docInfoPopover) {
+      _docInfoPopover.remove();
+      _docInfoPopover = null;
+    }
+    const btn = document.getElementById('doc-info-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function _documentDownloadName(doc) {
+    const extMap = {
+      javascript: '.js', typescript: '.ts', python: '.py', html: '.html',
+      css: '.css', markdown: '.md', json: '.json', yaml: '.yaml', bash: '.sh',
+      sql: '.sql', rust: '.rs', go: '.go', java: '.java', c: '.c', cpp: '.cpp',
+      csharp: '.cs', xml: '.xml', svg: '.svg', toml: '.toml', ini: '.ini',
+      ruby: '.rb', php: '.php', csv: '.csv', email: '.eml', pdf: '.pdf',
+    };
+    const title = (doc?.title || 'document').replace(/[^a-zA-Z0-9_\-. ]/g, '_').trim() || 'document';
+    const version = doc?.version_count || doc?.version || 1;
+    const ext = extMap[(doc?.language || '').toLowerCase()] || '.txt';
+    return `${title}_v${version}${ext}`;
+  }
+
+  function _documentInfoDate(value) {
+    if (!value) return 'Unknown';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
+  }
+
+  async function toggleDocumentInfo(e) {
+    e?.stopPropagation();
+    if (_docInfoPopover) {
+      _closeDocumentInfo();
+      return;
+    }
+    if (!activeDocId) return;
+
+    let doc = docs.get(activeDocId);
+    try {
+      const res = await fetch(`${API_BASE}/api/document/${activeDocId}`, { credentials: 'same-origin' });
+      if (res.ok) doc = { ...doc, ...(await res.json()) };
+    } catch (_) {
+      // Cached metadata is enough for the panel when a refresh is unavailable.
+    }
+    if (!doc) return;
+
+    const popover = document.createElement('div');
+    popover.className = 'doc-info-popover';
+    popover.setAttribute('role', 'dialog');
+    popover.setAttribute('aria-label', 'Document information');
+    const title = doc.title || 'Untitled';
+    const language = doc.language || 'text';
+    const version = doc.version_count || doc.version || 1;
+    const session = doc.session_id || doc.sessionId;
+    popover.innerHTML = `
+      <div class="doc-info-head"><strong>Document info</strong><button type="button" class="doc-info-close" aria-label="Close">&times;</button></div>
+      <div class="doc-info-section">
+        <div class="doc-info-row"><span>Title</span><b>${_escHtml(title)}</b></div>
+        <div class="doc-info-row"><span>Download name</span><b>${_escHtml(_documentDownloadName(doc))}</b></div>
+        <div class="doc-info-row"><span>Type</span><b>${_escHtml(language)}</b></div>
+        <div class="doc-info-row"><span>Version</span><b>v${version}</b></div>
+        <div class="doc-info-row"><span>Created</span><b>${_escHtml(_documentInfoDate(doc.created_at))}</b></div>
+        <div class="doc-info-row"><span>Modified</span><b>${_escHtml(_documentInfoDate(doc.updated_at))}</b></div>
+        <div class="doc-info-row"><span>Linked chat</span><b>${session ? 'Linked' : 'None'}</b></div>
+        <div class="doc-info-row"><span>Document ID</span><b class="doc-info-id">${_escHtml(doc.id || activeDocId)}</b></div>
+      </div>
+      <div class="doc-info-section">
+        <div class="doc-info-section-title">Sharing</div>
+        <div class="doc-info-sharing"><span class="doc-info-private-dot"></span><strong>Private to your account</strong></div>
+        <p>Share links and live collaborative editing are not enabled yet.</p>
+      </div>`;
+    document.body.appendChild(popover);
+    _docInfoPopover = popover;
+
+    const btn = document.getElementById('doc-info-btn');
+    if (btn) {
+      btn.setAttribute('aria-expanded', 'true');
+      const rect = btn.getBoundingClientRect();
+      const width = Math.min(340, window.innerWidth - 16);
+      popover.style.width = `${width}px`;
+      popover.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+      popover.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 6)}px`;
+    }
+    popover.querySelector('.doc-info-close')?.addEventListener('click', _closeDocumentInfo);
+    requestAnimationFrame(() => {
+      document.addEventListener('click', function closeInfoOutside(event) {
+        if (!_docInfoPopover) {
+          document.removeEventListener('click', closeInfoOutside);
+        } else if (!_docInfoPopover.contains(event.target) && event.target?.id !== 'doc-info-btn') {
+          _closeDocumentInfo();
+          document.removeEventListener('click', closeInfoOutside);
+        }
+      });
+    });
   }
 
   /** Save manual edits */

@@ -12096,6 +12096,83 @@ textarea.memory-add-input {
 .doc-action-icon-btn:hover {
   opacity: 1;
 }
+.doc-info-popover {
+  position: fixed;
+  z-index: 10020;
+  padding: 12px;
+  color: var(--fg);
+  background: var(--panel, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.36);
+  font-size: 11px;
+}
+.doc-info-head,
+.doc-info-row,
+.doc-info-sharing {
+  display: flex;
+  align-items: center;
+}
+.doc-info-head {
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.doc-info-close {
+  padding: 0 3px;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  opacity: 0.55;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.doc-info-close:hover { opacity: 1; }
+.doc-info-section {
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.doc-info-section + .doc-info-section { margin-top: 9px; }
+.doc-info-row {
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 22px;
+}
+.doc-info-row > span {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+.doc-info-row > b {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.doc-info-id { font-family: monospace; font-size: 9px; opacity: 0.7; }
+.doc-info-section-title {
+  margin-bottom: 7px;
+  opacity: 0.55;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 9px;
+}
+.doc-info-sharing { gap: 7px; }
+.doc-info-private-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent-primary, var(--red));
+}
+.doc-info-section p {
+  margin: 6px 0 0 14px;
+  opacity: 0.55;
+  line-height: 1.35;
+}
 /* The "T" icon stays centered in the fixed-size button so it grows
    symmetrically (from the center) instead of jumping around as the size
    changes. The S/M/L letter is pinned to the bottom-right corner, absolutely
