@@ -682,8 +682,9 @@ def _build_system_prompt(
     # always check it.
     _skills_message = None
     if active_document:
+        from src.document_artifacts import read_document_content
         set_active_document(active_document.id)
-        _doc_raw = active_document.current_content or ""
+        _doc_raw = read_document_content(active_document)
         _doc_title_l = (active_document.title or "").strip().lower()
         _is_email_doc = (
             active_document.language == "email"
@@ -712,7 +713,7 @@ def _build_system_prompt(
             _is_form_backed = False
             try:
                 from src.pdf_form_doc import find_source_upload_id
-                _is_form_backed = bool(find_source_upload_id(active_document.current_content or ""))
+                _is_form_backed = bool(find_source_upload_id(_doc_raw))
             except Exception:
                 pass
 
@@ -720,7 +721,7 @@ def _build_system_prompt(
                 doc_ctx = (
                     f'ACTIVE PDF FORM (open in editor — the user is looking at this right now)\n'
                     f'Title: "{active_document.title}"\n'
-                    f'```\n{active_document.current_content}\n```\n\n'
+                    f'```\n{_doc_raw}\n```\n\n'
                     f'The ENTIRE form is in the markdown above. Every field, on every '
                     f'page, is a bullet line you can see now.\n\n'
                     f'DO NOT try to "read the file", "open the PDF", or call '
@@ -753,7 +754,7 @@ def _build_system_prompt(
                     f'9. The user has an Export button — do NOT try to export.'
                 )
             else:
-                _doc_raw = active_document.current_content or ""
+                _doc_raw = read_document_content(active_document)
                 _doc_numbered = "\n".join(
                     f"{_i}\t{_ln}" for _i, _ln in enumerate(_doc_raw.split("\n"), 1)
                 )
@@ -765,8 +766,8 @@ def _build_system_prompt(
                     f'are NOT part of the document.\n'
                     f'```\n{_doc_numbered}\n```\n'
                     f'You ALREADY HAVE this document — it is right above. Do NOT ask the user to paste '
-                    f'it, and do NOT use read_file, bash, cat, or any tool to fetch it: it lives in the '
-                    f'editor, NOT on disk, so those attempts will fail. Every request is about THIS '
+                    f'it, and do NOT use read_file, bash, cat, or another tool to fetch it: the current '
+                    f'canonical artifact has already been loaded above. Every request is about THIS '
                     f'document unless the user clearly says otherwise.\n'
                     f'A "[Doc edit: L25]" prefix means the user is pointing at that line — use the '
                     f'numbers above to find the text they mean.\n'

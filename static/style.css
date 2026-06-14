@@ -12151,6 +12151,37 @@ textarea.memory-add-input {
   white-space: nowrap;
   font-weight: 500;
 }
+.doc-info-field {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+}
+.doc-info-field > span { opacity: 0.55; }
+.doc-info-field input {
+  min-width: 0;
+  padding: 5px 7px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
+.doc-info-save {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent-primary, var(--red)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary, var(--red)) 45%, var(--border));
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.doc-info-save:hover {
+  background: color-mix(in srgb, var(--accent-primary, var(--red)) 24%, transparent);
+}
 .doc-info-id { font-family: monospace; font-size: 9px; opacity: 0.7; }
 .doc-info-section-title {
   margin-bottom: 7px;

@@ -11,8 +11,28 @@ from sqlalchemy import case, func, or_
 from core.database import SessionLocal, Document, DocumentVersion
 from core.database import Session as DbSession
 from src.auth_helpers import get_current_user
+from src.document_artifacts import (
+    migrate_document_to_graph,
+    read_document_content,
+    read_revision,
+    should_store_in_graph,
+    write_document_artifact,
+    write_revision,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _stored_document_content(doc: Document, content: str) -> str:
+    if should_store_in_graph(doc.language):
+        write_document_artifact(doc, content)
+    else:
+        doc.current_content = content
+    return doc.current_content
+
+
+def _stored_revision_content(doc: Document, version: int, content: str) -> str:
+    return write_revision(doc.id, version, content) if should_store_in_graph(doc.language) else content
 
 
 def _get_session_or_404(db, session_id: str, user: Optional[str]):
@@ -48,7 +68,7 @@ def _library_language_for_document(doc: Document) -> str:
     """
     from src.pdf_form_doc import find_source_upload_id
 
-    if find_source_upload_id(doc.current_content or ""):
+    if find_source_upload_id(read_document_content(doc)):
         return "pdf"
     return doc.language or "text"
 
@@ -121,7 +141,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 session_id=req.session_id,
                 title=req.title,
                 language=language,
-                current_content=req.content,
+                current_content="",
                 version_count=1,
                 is_active=True,
                 # Stamp ownership directly so the doc survives its session
@@ -129,11 +149,12 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 # request is unauthenticated (single-user / localhost bypass).
                 owner=user or (session.owner if session else None),
             )
+            _stored_document_content(doc, req.content)
             ver = DocumentVersion(
                 id=ver_id,
                 document_id=doc_id,
                 version_number=1,
-                content=req.content,
+                content=_stored_revision_content(doc, 1, req.content),
                 summary="Initial version",
                 source="user",
             )
@@ -362,7 +383,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                     "session_name": session_name,
                     "title": doc.title,
                     "language": _library_language_for_document(doc),
-                    "preview": (doc.current_content or "")[:500],
+                    "preview": read_document_content(doc)[:500],
                     "version_count": doc.version_count,
                     "created_at": (doc.created_at.isoformat() + "Z") if doc.created_at else None,
                     "updated_at": (doc.updated_at.isoformat() + "Z") if doc.updated_at else None,
@@ -413,6 +434,9 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if not doc:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
+            if migrate_document_to_graph(doc):
+                db.commit()
+                db.refresh(doc)
             return _doc_to_dict(doc)
         finally:
             db.close()
@@ -455,7 +479,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
 
-            content = doc.current_content or ""
+            content = read_document_content(doc)
             upload_id = find_source_upload_id(content)
             if not upload_id:
                 raise HTTPException(400, "Document is not a PDF — no pdf_source marker found")
@@ -478,13 +502,14 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             head_re = re.compile(r'^(<!--[^>]+-->\s*\n+#[^\n]*\n+)', re.MULTILINE)
             head_match = head_re.match(content)
             head = head_match.group(1) if head_match else (content.splitlines()[0] + "\n\n# " + (doc.title or "PDF") + "\n\n")
-            doc.current_content = head + body_text.strip() + "\n"
+            fresh_content = head + body_text.strip() + "\n"
+            _stored_document_content(doc, fresh_content)
             doc.version_count = (doc.version_count or 1) + 1
             db.add(DocumentVersion(
                 id=str(__import__("uuid").uuid4()),
                 document_id=doc_id,
                 version_number=doc.version_count,
-                content=doc.current_content,
+                content=_stored_revision_content(doc, doc.version_count, fresh_content),
                 summary="PDF text re-extracted (OCR)",
                 source="ocr",
             ))
@@ -539,7 +564,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                         name = f"{base}-{i}" + ("" if "." in base else ext)
                         i += 1
                     used.add(name)
-                    zf.writestr(name, doc.current_content or "")
+                    zf.writestr(name, read_document_content(doc))
                     wrote += 1
             if not wrote:
                 raise HTTPException(404, "No documents found")
@@ -568,7 +593,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             _verify_doc_owner(db, doc, user)
 
             # Skip if content is identical
-            if doc.current_content == req.content:
+            if read_document_content(doc) == req.content:
                 return _doc_to_dict(doc)
 
             _assert_pdf_marker_upload_owned(request, req.content, user, upload_handler)
@@ -587,7 +612,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 age = (now - ver_time).total_seconds()
                 if age < VERSION_COALESCE_SECONDS:
                     # Update the existing version in-place
-                    latest_ver.content = req.content
+                    latest_ver.content = _stored_revision_content(doc, latest_ver.version_number, req.content)
                     latest_ver.created_at = now
                     if req.summary:
                         latest_ver.summary = req.summary
@@ -599,14 +624,14 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                     id=str(uuid.uuid4()),
                     document_id=doc_id,
                     version_number=new_ver,
-                    content=req.content,
+                    content=_stored_revision_content(doc, new_ver, req.content),
                     summary=req.summary or "Manual edit",
                     source="user",
                 )
                 doc.version_count = new_ver
                 db.add(ver)
 
-            doc.current_content = req.content
+            _stored_document_content(doc, req.content)
             db.commit()
             db.refresh(doc)
             return _doc_to_dict(doc)
@@ -632,6 +657,15 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 doc.title = req.title
             if req.language is not None:
                 doc.language = req.language
+            if should_store_in_graph(doc.language) and (
+                req.title is not None or req.language is not None or req.project is not None or req.tags is not None
+            ):
+                write_document_artifact(
+                    doc,
+                    read_document_content(doc),
+                    project=req.project,
+                    tags=req.tags,
+                )
             if req.session_id is not None:
                 # Empty string = unlink from session
                 if req.session_id:
@@ -702,7 +736,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             return [{
                 "id": v.id,
                 "version_number": v.version_number,
-                "content": v.content,
+                "content": read_revision(v.content),
                 "summary": v.summary,
                 "source": v.source,
                 "created_at": v.created_at.isoformat() if v.created_at else None,
@@ -754,11 +788,11 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 id=str(uuid.uuid4()),
                 document_id=doc_id,
                 version_number=new_ver_num,
-                content=old_ver.content,
+                content=_stored_revision_content(doc, new_ver_num, read_revision(old_ver.content)),
                 summary=f"Restored from v{num}",
                 source="user",
             )
-            doc.current_content = old_ver.content
+            _stored_document_content(doc, read_revision(old_ver.content))
             doc.version_count = new_ver_num
             db.add(ver)
             db.commit()
@@ -797,7 +831,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
 
             to_delete = []
             for doc in docs:
-                content = (doc.current_content or "").strip()
+                content = read_document_content(doc).strip()
                 title_raw = (doc.title or "").strip()
                 title = title_raw.lower()
 
@@ -912,7 +946,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             batch = to_review[:30]
             doc_list = []
             for i, doc in enumerate(batch):
-                preview = (doc.current_content or "")[:300].strip()
+                preview = read_document_content(doc)[:300].strip()
                 doc_list.append(f"[{i}] title=\"{doc.title}\" lang={doc.language or 'text'} content_preview=\"{preview}\"")
 
             prompt = (
@@ -990,7 +1024,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
 
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
 
@@ -1002,7 +1036,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if not fields:
                 raise HTTPException(404, "Field schema sidecar missing for source PDF")
 
-            values = parse_markdown_to_values(doc.current_content or "")
+            values = parse_markdown_to_values(read_document_content(doc))
             field_meta = {f["name"]: f for f in fields}
 
             preview = []
@@ -1053,7 +1087,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if not doc:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
             pdf_path = _locate_current_user_upload(request, upload_id, user)
@@ -1062,7 +1096,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
 
             fitz = _load_pdf_viewer_fitz()
             schema = load_field_sidecar(pdf_path) or []
-            values = parse_markdown_to_values(doc.current_content or "")
+            values = parse_markdown_to_values(read_document_content(doc))
 
             # Group fields by page
             by_page: Dict[int, list] = {}
@@ -1120,7 +1154,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if not doc:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
             pdf_path = _locate_current_user_upload(request, upload_id, user)
@@ -1175,7 +1209,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if not doc:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
             pdf_path = _locate_current_user_upload(request, upload_id, user)
@@ -1323,14 +1357,14 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             if not doc:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
             pdf_path = _locate_current_user_upload(request, upload_id, user)
             if not pdf_path:
                 raise HTTPException(404, f"Source PDF {upload_id} not found")
 
-            values = parse_markdown_to_values(doc.current_content or "")
+            values = parse_markdown_to_values(read_document_content(doc))
             out_path = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False).name
             _to_unlink.append(out_path)
             try:
@@ -1340,7 +1374,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 _cleanup_temps()
                 raise HTTPException(500, f"PDF render failed: {e}")
 
-            annotations = parse_markdown_annotations(doc.current_content or "")
+            annotations = parse_markdown_annotations(read_document_content(doc))
             if annotations:
                 ann_sig_ids = [
                     a["value"][len("signature:"):].strip()
@@ -1416,7 +1450,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 raise HTTPException(404, "Document not found")
             _verify_doc_owner(db, doc, user)
 
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
 
@@ -1427,7 +1461,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
             schema = load_field_sidecar(pdf_path) or []
             sig_field_names = {f["name"] for f in schema if f.get("type") == "signature"}
 
-            all_values = parse_markdown_to_values(doc.current_content or "")
+            all_values = parse_markdown_to_values(read_document_content(doc))
             # Split: signature fields go to stamps, everything else to fill_fields
             text_values: dict = {}
             sig_ids: dict[str, str] = {}
@@ -1474,7 +1508,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                     logger.error(f"stamp_signatures failed for doc {doc_id}: {e}")
 
             # Burn freeform annotations (Text/Check/Sign drops) on top.
-            annotations = parse_markdown_annotations(doc.current_content or "")
+            annotations = parse_markdown_annotations(read_document_content(doc))
             if annotations:
                 # Resolve any signature annotations to their PNG bytes.
                 ann_sig_ids = [
@@ -1560,7 +1594,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 raise HTTPException(400, "Document has no source email — cannot reply")
 
             # 1) Build the flattened PDF (same pipeline as export_pdf)
-            upload_id = find_source_upload_id(doc.current_content or "")
+            upload_id = find_source_upload_id(read_document_content(doc))
             if not upload_id:
                 raise HTTPException(400, "Document is not linked to a source PDF")
             pdf_path = _locate_current_user_upload(request, upload_id, user)
@@ -1569,7 +1603,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
 
             schema = load_field_sidecar(pdf_path) or []
             sig_field_names = {f["name"] for f in schema if f.get("type") == "signature"}
-            all_values = parse_markdown_to_values(doc.current_content or "")
+            all_values = parse_markdown_to_values(read_document_content(doc))
             text_values: dict = {}
             sig_ids: dict[str, str] = {}
             for name, raw in all_values.items():
@@ -1610,7 +1644,7 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 except Exception as e:
                     logger.warning(f"stamp_signatures failed for {doc_id}: {e}")
 
-            annotations = parse_markdown_annotations(doc.current_content or "")
+            annotations = parse_markdown_annotations(read_document_content(doc))
             if annotations:
                 ann_sig_ids = [
                     a["value"][len("signature:"):].strip()

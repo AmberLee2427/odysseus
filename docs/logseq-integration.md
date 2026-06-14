@@ -1,8 +1,20 @@
 # Logseq Integration
 
-Odysseus can use a file-based Logseq graph as a shared knowledge layer. This
-first integration does not replace the existing notes, documents, tasks, or
-operational database.
+Odysseus uses a file-based Logseq graph as its durable knowledge and document
+artifact layer. Editor documents store their canonical body and metadata in
+Logseq-compatible Markdown; SQLite retains operational identity, ownership,
+chat linkage, and revision bookkeeping only. Email drafts remain operational
+documents and are not written into the graph.
+
+Existing editor documents migrate lazily when opened or edited. New document
+artifacts are written directly to:
+
+```text
+pages/artifacts/<document-id>.md
+```
+
+Revision bodies are stored below `logseq/odysseus-versions/`, rather than
+duplicated in SQLite.
 
 ## Graph Directory
 
@@ -56,18 +68,18 @@ automatically granted access to it.
 
 ## Housekeeping
 
-Existing built-in tidy runs remain deliberately separate:
+Existing built-in tidy runs remain deliberately scoped:
 
-- Editor Documents Tidy affects only editor-panel documents.
+- Editor Documents Tidy reads graph-backed editor artifacts through the
+  document index and affects only those indexed documents.
 - Agent Memory Tidy affects only compact agent memories.
 - Research Tidy affects only broken research JSON files.
 
-None of these inspect, rewrite, or delete Logseq pages. Automated Logseq cleanup
-is deferred until the graph has revision history and an explicit deletion
-policy.
+General graph pages that are not indexed editor documents are not touched.
+Automated cleanup of orphaned graph pages remains deferred pending an explicit
+deletion policy.
 
 ## Deferred
 
-This phase does not include collaborative editing, migrations from existing
-notes/documents, project-aware context loading, graph visualization, or
+This phase does not include collaborative editing, graph visualization, or
 per-user graph permissions.

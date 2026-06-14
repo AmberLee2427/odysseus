@@ -505,11 +505,12 @@ def build_user_content(
                                     Document.id == doc_id
                                 ).first()
                                 if _d:
+                                    from src.document_artifacts import read_document_content
                                     auto_opened_docs.append({
                                         "doc_id": _d.id,
                                         "title": _d.title,
                                         "language": _d.language,
-                                        "content": _d.current_content,
+                                        "content": read_document_content(_d),
                                         "version": _d.version_count,
                                     })
                             finally:

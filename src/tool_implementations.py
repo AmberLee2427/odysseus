@@ -223,6 +223,7 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
     Some models mix them — strip any XML-style tags and fall back to line parsing."""
     import uuid, re as _re
     from src.database import SessionLocal, Document, DocumentVersion, Session as DbSession
+    from src.document_artifacts import should_store_in_graph, write_document_artifact, write_revision
 
     raw = content_block or ""
 
@@ -294,16 +295,20 @@ async def do_create_document(content_block: str, session_id: Optional[str] = Non
             session_id=session_id,
             title=title,
             language=language,
-            current_content=content,
+            current_content="",
             version_count=1,
             is_active=True,
             owner=_owner,
         )
+        if should_store_in_graph(language):
+            write_document_artifact(doc, content)
+        else:
+            doc.current_content = content
         ver = DocumentVersion(
             id=ver_id,
             document_id=doc_id,
             version_number=1,
-            content=content,
+            content=write_revision(doc_id, 1, content) if should_store_in_graph(language) else content,
             summary=f"Created by {_active_model or 'AI'}",
             source="ai",
         )
@@ -337,6 +342,7 @@ async def do_update_document(content: str, doc_id: Optional[str] = None, owner: 
     """Update an existing document. Content = full new document text."""
     import uuid
     from src.database import SessionLocal, Document, DocumentVersion
+    from src.document_artifacts import read_document_content, should_store_in_graph, write_document_artifact, write_revision
 
     target_id = doc_id or _active_document_id
 
@@ -354,8 +360,9 @@ async def do_update_document(content: str, doc_id: Optional[str] = None, owner: 
         if not doc:
             return {"error": "No documents exist to update"}
 
-        is_email_doc = doc.language == "email" or _looks_like_email_document(doc.current_content or "", doc.title or "")
-        new_content = _coerce_email_document_content(doc.current_content or "", content) if is_email_doc else content.strip()
+        old_content = read_document_content(doc)
+        is_email_doc = doc.language == "email" or _looks_like_email_document(old_content, doc.title or "")
+        new_content = _coerce_email_document_content(old_content, content) if is_email_doc else content.strip()
         if is_email_doc:
             doc.language = "email"
 
@@ -364,11 +371,14 @@ async def do_update_document(content: str, doc_id: Optional[str] = None, owner: 
             id=str(uuid.uuid4()),
             document_id=target_id,
             version_number=new_ver,
-            content=new_content,
+            content=write_revision(target_id, new_ver, new_content) if should_store_in_graph(doc.language) else new_content,
             summary=f"Updated by {_active_model or 'AI'}",
             source="ai",
         )
-        doc.current_content = new_content
+        if should_store_in_graph(doc.language):
+            write_document_artifact(doc, new_content)
+        else:
+            doc.current_content = new_content
         doc.version_count = new_ver
         db.add(ver)
         db.commit()
@@ -401,6 +411,7 @@ async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Op
     """Apply targeted FIND/REPLACE edits to an existing document."""
     import uuid
     from src.database import SessionLocal, Document, DocumentVersion
+    from src.document_artifacts import read_document_content, should_store_in_graph, write_document_artifact, write_revision
 
     target_id = doc_id or _active_document_id
 
@@ -424,7 +435,7 @@ async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Op
         if not doc:
             return {"error": "No documents exist to edit"}
 
-        updated_content = doc.current_content
+        updated_content = read_document_content(doc)
         applied = 0
         skipped = 0
         for edit in edits:
@@ -456,11 +467,14 @@ async def do_edit_document(content: str, doc_id: Optional[str] = None, owner: Op
             id=str(uuid.uuid4()),
             document_id=target_id,
             version_number=new_ver,
-            content=updated_content,
+            content=write_revision(target_id, new_ver, updated_content) if should_store_in_graph(doc.language) else updated_content,
             summary=f"Edited by {_active_model or 'AI'} ({applied} edit(s))",
             source="ai",
         )
-        doc.current_content = updated_content
+        if should_store_in_graph(doc.language):
+            write_document_artifact(doc, updated_content)
+        else:
+            doc.current_content = updated_content
         doc.version_count = new_ver
         db.add(ver)
         db.commit()
@@ -508,6 +522,7 @@ def parse_suggest_blocks(content: str) -> list:
 async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[str] = None) -> Dict:
     """Create inline suggestions for the active document WITHOUT modifying it."""
     from src.database import SessionLocal, Document
+    from src.document_artifacts import read_document_content
 
     target_id = doc_id or _active_document_id
     if not target_id:
@@ -524,9 +539,10 @@ async def do_suggest_document(content: str, doc_id: str = None, owner: Optional[
             return {"error": f"Document {target_id} not found"}
 
         # Validate that FIND text exists in document
+        document_content = read_document_content(doc)
         valid = []
         for s in suggestions:
-            if s["find"] in doc.current_content:
+            if s["find"] in document_content:
                 valid.append(s)
             else:
                 logger.warning(f"suggest_document: FIND text not found, skipping: {s['find'][:80]!r}")
@@ -1373,6 +1389,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
     so the user can click straight from chat to open the editor.
     """
     from core.database import SessionLocal, Document
+    from src.document_artifacts import read_document_content
     from datetime import datetime, timezone
 
     try:
@@ -1412,7 +1429,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
             lines = []
             items = []
             for i, d in enumerate(docs):
-                size = len(d.current_content or "")
+                size = len(read_document_content(d))
                 lang = d.language or "text"
                 ts = getattr(d, 'updated_at', None) or getattr(d, 'created_at', None)
                 marker = " ← most recent" if i == 0 else ""
@@ -1434,7 +1451,7 @@ async def do_manage_documents(content: str, owner: Optional[str] = None) -> Dict
             doc = _get_owned_document(db, Document, doc_id, owner, active_only=True)
             if not doc:
                 return {"error": f"Document '{doc_id}' not found", "exit_code": 1}
-            body = doc.current_content or ""
+            body = read_document_content(doc)
             preview_limit = int(args.get("limit", MAX_READ_CHARS))
             truncated = len(body) > preview_limit
             preview = body[:preview_limit] + (f"\n... (truncated, {len(body)} chars total)" if truncated else "")

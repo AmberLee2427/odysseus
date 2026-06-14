@@ -17,6 +17,10 @@ def test_document_info_button_is_compact_and_wired():
 def test_document_info_surfaces_metadata_and_honest_sharing_state():
     assert "Download name" in DOC_JS
     assert "Document ID" in DOC_JS
+    assert 'id="doc-info-project"' in DOC_JS
+    assert 'id="doc-info-tags"' in DOC_JS
+    assert "Save metadata" in DOC_JS
+    assert "Logseq graph" in DOC_JS
     assert "Private to your account" in DOC_JS
     assert "Share links and live collaborative editing are not enabled yet." in DOC_JS
 

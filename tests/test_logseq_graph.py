@@ -36,6 +36,35 @@ def test_logseq_graph_append_preserves_page_properties(tmp_path):
     assert page["content"].endswith("- Existing\n- Added\n")
 
 
+def test_document_artifact_body_metadata_and_revisions_live_in_graph(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_LOGSEQ_GRAPH_DIR", str(tmp_path / "graph"))
+    from types import SimpleNamespace
+    from src.document_artifacts import (
+        ARTIFACT_PREFIX,
+        document_metadata,
+        read_document_content,
+        read_revision,
+        write_document_artifact,
+        write_revision,
+    )
+
+    doc = SimpleNamespace(
+        id="artifact-12345678",
+        title="Observing Plan",
+        language="markdown",
+        owner="amber",
+        current_content="",
+    )
+    write_document_artifact(doc, "# Observing Plan\n\nTarget list\n", project="RMDC26", tags=["science", "plan"])
+    revision = write_revision(doc.id, 1, "# Observing Plan\n")
+
+    assert doc.current_content == ARTIFACT_PREFIX + doc.id
+    assert read_document_content(doc) == "# Observing Plan\n\nTarget list\n"
+    assert document_metadata(doc)["project"] == "RMDC26"
+    assert set(document_metadata(doc)["tags"]) == {"plan", "science"}
+    assert read_revision(revision) == "# Observing Plan\n"
+
+
 def test_manage_logseq_tool_uses_configured_graph(monkeypatch, tmp_path):
     monkeypatch.setenv("ODYSSEUS_LOGSEQ_GRAPH_DIR", str(tmp_path / "graph"))
     from src.tool_implementations import do_manage_logseq

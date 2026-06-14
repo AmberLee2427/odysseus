@@ -8145,6 +8145,10 @@ import * as Modals from './modalManager.js';
     return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
   }
 
+  function _documentInfoAttr(value) {
+    return _escHtml(String(value || '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   async function toggleDocumentInfo(e) {
     e?.stopPropagation();
     if (_docInfoPopover) {
@@ -8176,11 +8180,16 @@ import * as Modals from './modalManager.js';
         <div class="doc-info-row"><span>Title</span><b>${_escHtml(title)}</b></div>
         <div class="doc-info-row"><span>Download name</span><b>${_escHtml(_documentDownloadName(doc))}</b></div>
         <div class="doc-info-row"><span>Type</span><b>${_escHtml(language)}</b></div>
+        <label class="doc-info-field"><span>Project</span><input id="doc-info-project" type="text" value="${_documentInfoAttr(doc.project || '')}" placeholder="Project name"></label>
+        <label class="doc-info-field"><span>Tags</span><input id="doc-info-tags" type="text" value="${_documentInfoAttr((doc.tags || []).join(', '))}" placeholder="tag-one, tag-two"></label>
         <div class="doc-info-row"><span>Version</span><b>v${version}</b></div>
         <div class="doc-info-row"><span>Created</span><b>${_escHtml(_documentInfoDate(doc.created_at))}</b></div>
         <div class="doc-info-row"><span>Modified</span><b>${_escHtml(_documentInfoDate(doc.updated_at))}</b></div>
         <div class="doc-info-row"><span>Linked chat</span><b>${session ? 'Linked' : 'None'}</b></div>
+        <div class="doc-info-row"><span>Artifact storage</span><b>${doc.graph_backed ? 'Logseq graph' : 'Migrates on next save'}</b></div>
+        ${doc.artifact_path ? `<div class="doc-info-row"><span>Graph path</span><b>${_escHtml(doc.artifact_path)}</b></div>` : ''}
         <div class="doc-info-row"><span>Document ID</span><b class="doc-info-id">${_escHtml(doc.id || activeDocId)}</b></div>
+        <button type="button" class="doc-info-save">Save metadata</button>
       </div>
       <div class="doc-info-section">
         <div class="doc-info-section-title">Sharing</div>
@@ -8200,6 +8209,23 @@ import * as Modals from './modalManager.js';
       popover.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 6)}px`;
     }
     popover.querySelector('.doc-info-close')?.addEventListener('click', _closeDocumentInfo);
+    popover.querySelector('.doc-info-save')?.addEventListener('click', async () => {
+      const project = popover.querySelector('#doc-info-project')?.value.trim() || '';
+      const tags = (popover.querySelector('#doc-info-tags')?.value || '')
+        .split(',').map(tag => tag.trim()).filter(Boolean);
+      const res = await fetch(`${API_BASE}/api/document/${activeDocId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ project, tags }),
+      });
+      if (!res.ok) {
+        if (uiModule) uiModule.showError('Failed to save document metadata');
+        return;
+      }
+      if (uiModule) uiModule.showToast('Document metadata saved');
+      _closeDocumentInfo();
+    });
     requestAnimationFrame(() => {
       document.addEventListener('click', function closeInfoOutside(event) {
         if (!_docInfoPopover) {

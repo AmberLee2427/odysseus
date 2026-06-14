@@ -33,22 +33,28 @@ class DocumentPatch(BaseModel):
     title: Optional[str] = None
     language: Optional[str] = None
     session_id: Optional[str] = None  # link/unlink document to a session
+    project: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 # ---- Helpers ----
 
 def _doc_to_dict(doc: Document) -> Dict[str, Any]:
+    from src.document_artifacts import document_metadata, read_document_content
+
+    artifact = document_metadata(doc)
     return {
         "id": doc.id,
         "session_id": doc.session_id,
         "title": doc.title,
         "language": doc.language,
-        "current_content": doc.current_content,
+        "current_content": read_document_content(doc),
         "version_count": doc.version_count,
         "is_active": doc.is_active,
         "archived": bool(getattr(doc, "archived", False)),
         "created_at": (doc.created_at.isoformat() + "Z") if doc.created_at else None,
         "updated_at": (doc.updated_at.isoformat() + "Z") if doc.updated_at else None,
+        **artifact,
         # Source-email provenance (set when doc was created from an email
         # attachment) — drives the "Send signed reply" menu item.
         "source_email_uid":        getattr(doc, "source_email_uid", None),
@@ -58,11 +64,13 @@ def _doc_to_dict(doc: Document) -> Dict[str, Any]:
     }
 
 def _version_to_dict(v: DocumentVersion) -> Dict[str, Any]:
+    from src.document_artifacts import read_revision
+
     return {
         "id": v.id,
         "document_id": v.document_id,
         "version_number": v.version_number,
-        "content": v.content,
+        "content": read_revision(v.content),
         "summary": v.summary,
         "source": v.source,
         "created_at": v.created_at.isoformat() if v.created_at else None,

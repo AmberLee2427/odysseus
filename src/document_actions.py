@@ -62,6 +62,7 @@ async def run_document_tidy(owner: str) -> str:
       copy (longest real content, then most recent) is kept; the rest deleted.
     """
     from core.database import SessionLocal, Document, Session as DbSession
+    from src.document_artifacts import read_document_content
 
     db = SessionLocal()
     try:
@@ -79,7 +80,7 @@ async def run_document_tidy(owner: str) -> str:
         survivors = []  # docs that pass the junk rules, considered for dedup
 
         for doc in docs:
-            content = (doc.current_content or "").strip()
+            content = read_document_content(doc).strip()
             title = (doc.title or "").strip().lower()
 
             # Strip markdown noise to get "real" character count
@@ -131,7 +132,7 @@ async def run_document_tidy(owner: str) -> str:
         # fingerprint) and keep only the most complete copy of each group. ---
         groups: dict = {}
         for doc in survivors:
-            key = (_norm_title(doc.title), _content_fingerprint(doc.current_content))
+            key = (_norm_title(doc.title), _content_fingerprint(read_document_content(doc)))
             groups.setdefault(key, []).append(doc)
 
         for (title_key, _fp), members in groups.items():
@@ -149,7 +150,7 @@ async def run_document_tidy(owner: str) -> str:
             # compared against a datetime.
             members.sort(
                 key=lambda d: (
-                    _real_len(d.current_content),
+                    _real_len(read_document_content(d)),
                     _updated(d) is not None,
                     _updated(d) or datetime.min,
                 ),

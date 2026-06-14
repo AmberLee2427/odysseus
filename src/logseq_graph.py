@@ -89,6 +89,48 @@ class LogseqGraph:
         separator = "" if not current or current.endswith("\n") else "\n"
         return self.upsert_page(clean_title, current + separator + content.rstrip() + "\n")
 
+    def write_artifact(
+        self,
+        artifact_id: str,
+        title: str,
+        content: str,
+        properties: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Write an Odysseus artifact at a stable, UUID-addressed graph path."""
+        self.ensure_graph()
+        clean_id = self._clean_artifact_id(artifact_id)
+        path = self.root / "pages" / "artifacts" / f"{clean_id}.md"
+        metadata = {"odysseus-id": clean_id, "artifact-type": "document", **(properties or {})}
+        body = self._merge_properties(content or "", self._clean_title(title), metadata)
+        self._atomic_write(path, body)
+        page = self._page_from_path(path, include_content=True)
+        page["body"] = self._body(page["content"])
+        return page
+
+    def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        clean_id = self._clean_artifact_id(artifact_id)
+        path = self.root / "pages" / "artifacts" / f"{clean_id}.md"
+        if not path.is_file():
+            return None
+        page = self._page_from_path(path, include_content=True)
+        page["body"] = self._body(page["content"])
+        return page
+
+    def write_artifact_revision(self, artifact_id: str, version: int, content: str) -> str:
+        clean_id = self._clean_artifact_id(artifact_id)
+        clean_version = max(1, int(version))
+        path = self.root / "logseq" / "odysseus-versions" / clean_id / f"{clean_version}.md"
+        self._atomic_write(path, content or "")
+        return str(path.relative_to(self.root))
+
+    def get_artifact_revision(self, artifact_id: str, version: int) -> str | None:
+        clean_id = self._clean_artifact_id(artifact_id)
+        clean_version = max(1, int(version))
+        path = self.root / "logseq" / "odysseus-versions" / clean_id / f"{clean_version}.md"
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
+
     def backlinks(self, title: str, limit: int = 100) -> list[dict[str, str]]:
         target = self._clean_title(title).casefold()
         matches = []
@@ -175,6 +217,20 @@ class LogseqGraph:
         if len(clean) > 240:
             raise ValueError("Page title is too long")
         return clean
+
+    @staticmethod
+    def _clean_artifact_id(artifact_id: str) -> str:
+        clean = str(artifact_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", clean):
+            raise ValueError("Invalid artifact id")
+        return clean
+
+    @staticmethod
+    def _body(content: str) -> str:
+        lines = content.splitlines()
+        while lines and (_PROPERTY_RE.match(lines[0]) or not lines[0].strip()):
+            lines.pop(0)
+        return "\n".join(lines).rstrip() + ("\n" if lines else "")
 
     @staticmethod
     def _merge_properties(content: str, title: str, properties: dict[str, Any]) -> str:
