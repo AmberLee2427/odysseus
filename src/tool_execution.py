@@ -22,12 +22,12 @@ from src.tool_security import is_public_blocked_tool, owner_is_admin_or_single_u
 from src.tool_policy import ToolPolicy
 from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS, MAX_DIFF_LINES
 
-# Persistent working directory for agent subprocesses.
-# Resolves to <repo_root>/data, which is the bind-mounted volume in Docker
-# (/app/data) and the local data directory for manual installs.
-# Using this as cwd and HOME prevents the agent from silently creating files
-# in ephemeral container layers that are lost on the next rebuild.
-_AGENT_WORKDIR = str(pathlib.Path(__file__).parent.parent / "data")
+# Persistent working directory for agent subprocesses. Docker Compose points
+# this at its live host workspace mount; native installs keep using data/.
+_DEFAULT_AGENT_WORKDIR = str(pathlib.Path(__file__).parent.parent / "data")
+_AGENT_WORKDIR = os.path.abspath(os.path.expanduser(
+    os.getenv("ODYSSEUS_AGENT_WORKDIR", _DEFAULT_AGENT_WORKDIR)
+))
 
 
 def _unified_diff(old: str, new: str, path: str) -> Optional[Dict[str, Any]]:

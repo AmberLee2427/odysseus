@@ -116,6 +116,9 @@ function _closeHoveredWindow() {
   if (!win) win = hoveredToggleWindow;
   if (!win || !document.contains(win)) return false;
   const modalForWin = win.closest?.('.modal[id]');
+  if (modalForWin?.id === 'terminal-modal') {
+    try { Modals.minimize('terminal-modal'); return true; } catch {}
+  }
   if (modalForWin?.id === 'email-lib-modal') {
     const closeBtn = document.getElementById('email-lib-close') || modalForWin.querySelector('.close-btn');
     if (closeBtn) {
@@ -1279,6 +1282,12 @@ if (!window._odyEscExpandGuard) {
     }
     const topModal = pickTopModal();
     if (!topModal) return;
+    if (topModal.id === 'terminal-modal') {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      try { Modals.minimize('terminal-modal'); } catch {}
+      return;
+    }
     const closeBtn = topModal.querySelector('.close-btn, .modal-close-btn, [data-action="close"]');
     e.stopImmediatePropagation();
     e.preventDefault();

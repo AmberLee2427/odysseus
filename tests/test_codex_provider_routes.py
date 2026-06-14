@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import routes.codex_provider_routes as codex_provider_routes
+from src.codex_app_server import _conversation_prompt
 
 
 def _client(monkeypatch):
@@ -11,6 +12,23 @@ def _client(monkeypatch):
     app = FastAPI()
     app.include_router(codex_provider_routes.setup_codex_provider_routes())
     return TestClient(app)
+
+
+def test_codex_provider_preserves_odysseus_tool_access_instructions():
+    instructions, prompt = _conversation_prompt(
+        [
+            {
+                "role": "system",
+                "content": "You have an active workspace. Use ```bash to inspect it.",
+            },
+            {"role": "user", "content": "List the files."},
+        ]
+    )
+
+    assert "Use ```bash to inspect it." in instructions
+    assert "request them by emitting the exact textual tool syntax" in instructions
+    assert "Do not inspect files, run shell commands, or modify the workspace." not in instructions
+    assert prompt == "USER:\nList the files."
 
 
 def test_codex_provider_models(monkeypatch):

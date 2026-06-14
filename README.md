@@ -401,6 +401,9 @@ Key settings:
 | `CHROMADB_PORT` | `8100` | ChromaDB port for manual host runs. Docker overrides this to `8000`. |
 | `EMBEDDING_URL` | -- | OpenAI-compatible embeddings endpoint |
 | `ODYSSEUS_CHAT_UPLOAD_MAX_BYTES` | `10485760` | Chat/agent attachment cap in bytes. Raise for larger local PDFs or text documents. |
+| `ODYSSEUS_WORKSPACE_HOST_PATH` | `.` | Host directory mounted read/write at `/workspace` for the agent and terminal. Set to `..` to expose the repository's parent. |
+| `ODYSSEUS_AGENT_WORKDIR` | `/workspace` in Docker | Default working directory for agent shell and Python tools. |
+| `ODYSSEUS_TERMINAL_CWD` | `/workspace` in Docker | Default working directory for the built-in terminal. |
 
 To use the ComfyUI sidebar panel from other machines on the same LAN, start
 ComfyUI on a LAN-reachable interface:

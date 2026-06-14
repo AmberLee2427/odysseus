@@ -472,6 +472,9 @@ body.bg-pattern-sparkles {
       height: 24px;
       border-radius: 50%;
       background: color-mix(in srgb, var(--fg) 12%, transparent);
+      background-position: center;
+      background-size: cover;
+      background-repeat: no-repeat;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -481,6 +484,37 @@ body.bg-pattern-sparkles {
       opacity: 0.7;
       flex-shrink: 0;
       text-transform: uppercase;
+    }
+
+    .user-bar-avatar.has-image {
+      opacity: 1;
+      color: transparent;
+    }
+
+    .settings-avatar-controls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .settings-avatar-msg {
+      flex: 1 1 220px;
+      font-size: 10px;
+      opacity: 0.5;
+    }
+
+    .settings-avatar-upload {
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .settings-avatar-upload.is-disabled {
+      opacity: 0.45;
+      pointer-events: none;
     }
 
     .user-bar-name {
@@ -756,8 +790,10 @@ body.bg-pattern-sparkles {
     .icon-rail-btn:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 12%, transparent); }
     .icon-rail-btn.active-section { opacity: 1; background: color-mix(in srgb, var(--color-accent) 15%, transparent); }
     /* Unified "minimized" indicator for any rail/sidebar button whose modal is held open */
-    .rail-minimized { position: relative; }
-    .rail-minimized::after {
+    .rail-minimized,
+    .terminal-session-active { position: relative; }
+    .rail-minimized::after,
+    .terminal-session-active::after {
       content: ''; position: absolute;
       /* Default for inline spans like #email-section-title — sit just to the
          right of the element so it never overlaps the icon. */
@@ -769,15 +805,19 @@ body.bg-pattern-sparkles {
       animation: rail-min-pulse 2s ease-in-out infinite;
     }
     /* Compact icon-rail buttons: top-right corner of the icon */
-    .icon-rail-btn.rail-minimized::after { top: 4px; right: 4px; transform: none; }
+    .icon-rail-btn.rail-minimized::after,
+    .icon-rail-btn.terminal-session-active::after { top: 4px; right: 4px; transform: none; }
     /* Sidebar list-items are wider — anchor right-aligned vertically centered */
-    .list-item.rail-minimized::after { top: 50%; right: 8px; transform: translateY(-50%); }
+    .list-item.rail-minimized::after,
+    .list-item.terminal-session-active::after { top: 50%; right: 8px; transform: translateY(-50%); }
     #tool-memory-btn.rail-minimized::after { right: 12px; }
     /* Per-user nudge: the listed tools' minimized dot sits 2px further
        in from the right edge so it doesn't look glued to the border. */
     #tool-theme-btn.rail-minimized::after,
     #tool-tasks-btn.rail-minimized::after,
     #tool-notes-btn.rail-minimized::after,
+    #tool-terminal-btn.rail-minimized::after,
+    #tool-terminal-btn.terminal-session-active::after,
     #tool-library-btn.rail-minimized::after,
     #tool-gallery-btn.rail-minimized::after,
     #tool-compare-btn.rail-minimized::after,
@@ -5028,21 +5068,46 @@ body.bg-pattern-sparkles {
       height: min(500px, 72vh);
       min-width: 360px;
       min-height: 240px;
-      padding: 8px;
+      padding: 12px;
       overflow: hidden;
       background: var(--panel);
     }
     .terminal-modal-content .modal-header {
       flex-shrink: 0;
-      gap: 8px;
-      margin-bottom: 8px;
+      gap: 16px;
+      margin-bottom: 12px;
+      min-height: 32px;
+    }
+    .terminal-title-group,
+    .terminal-header-actions {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .terminal-title-group {
+      gap: 10px;
+      flex: 1;
+    }
+    .terminal-title-group h4 {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-right: 0;
+      flex-shrink: 0;
+    }
+    .terminal-title-group h4 svg { flex-shrink: 0; }
+    .terminal-header-actions {
+      gap: 7px;
+      flex-shrink: 0;
     }
     .terminal-status {
       border: 1px solid var(--border);
       border-radius: 999px;
-      padding: 2px 7px;
+      padding: 3px 8px;
       color: var(--muted);
       font-size: 10px;
+      line-height: 1.2;
+      white-space: nowrap;
     }
     .terminal-status[data-state="connected"] { color: #8fbc8f; border-color: #8fbc8f66; }
     .terminal-status[data-state="error"] { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
@@ -5058,7 +5123,7 @@ body.bg-pattern-sparkles {
     .terminal-header-btn {
       border: 1px solid var(--border);
       border-radius: 5px;
-      padding: 4px 8px;
+      padding: 5px 9px;
       background: var(--bg);
       color: var(--fg);
       cursor: pointer;
@@ -5068,7 +5133,7 @@ body.bg-pattern-sparkles {
     .terminal-screen {
       flex: 1;
       min-height: 0;
-      padding: 8px;
+      padding: 12px;
       box-sizing: border-box;
       overflow: hidden;
       border: 1px solid var(--border);
@@ -5089,6 +5154,10 @@ body.bg-pattern-sparkles {
         border-radius: 0;
       }
       .terminal-scope { display: none; }
+      .terminal-modal-content { padding: 10px; }
+      .terminal-modal-content .modal-header { gap: 8px; margin-bottom: 10px; }
+      .terminal-header-actions { gap: 5px; }
+      .terminal-status { display: none; }
     }
 
     /* Tool windows open centered in the CHAT AREA (the space right of the

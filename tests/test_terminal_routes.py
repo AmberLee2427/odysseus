@@ -99,6 +99,24 @@ def test_terminal_http_fallback_gets_interactive_output(monkeypatch):
     assert b"__ODY_HTTP_TERM_OK__" in output
 
 
+def test_terminal_http_session_is_reused_until_explicitly_closed(monkeypatch):
+    monkeypatch.setenv("ODYSSEUS_TERMINAL_SHELL", "/bin/sh")
+    client = _client()
+    client.cookies.set("odysseus_session", "admin-session")
+
+    assert client.get("/api/terminal/session").json()["active"] is False
+    first = client.post("/api/terminal/session").json()
+    assert client.get("/api/terminal/session").json() == {"active": True, "id": first["id"]}
+    second = client.post("/api/terminal/session").json()
+    assert second == {"id": first["id"], "reused": True}
+
+    third = client.post("/api/terminal/session?new=1").json()
+    assert third["id"] != first["id"]
+    assert third["reused"] is False
+    client.delete(f"/api/terminal/session/{third['id']}")
+    assert client.get("/api/terminal/session").json()["active"] is False
+
+
 def test_terminal_ui_is_wired_into_sidebar_rail_and_deep_link():
     from pathlib import Path
 
@@ -109,10 +127,25 @@ def test_terminal_ui_is_wired_into_sidebar_rail_and_deep_link():
 
     assert 'id="tool-terminal-btn"' in index
     assert 'id="rail-terminal"' in index
+    assert 'id="tool-terminal-btn" style="display:none"' not in index
+    assert 'id="rail-terminal" title="Terminal" style="display:none"' not in index
+    assert 'data-ui-key="tool-terminal"' in index
+    assert "terminalLauncher.style.display = d.is_admin ? '' : 'none'" in app_js
+    ui_js = (root / "static/js/ui.js").read_text(encoding="utf-8")
+    assert "import terminalModule from './js/terminal.js?v=20260613h'" in app_js
+    assert "import uiModule from './js/ui.js';" in app_js
+    assert "import uiModule from './js/ui.js?" not in app_js
+    assert "terminal-title-group" in terminal_js
+    assert "terminal-header-actions" in terminal_js
+    assert ui_js.count("Modals.minimize('terminal-modal')") >= 2
     assert "'/terminal':  () => terminalModule.open()" in app_js
-    assert "/api/terminal/ws" in terminal_js
+    assert "/api/terminal/session" in terminal_js
     assert "type: 'resize'" in terminal_js
     assert "terminal-modal-content" in terminal_js
     assert "makeWindowDraggable" in terminal_js
     assert "Modals.injectMinimizeButton" in terminal_js
     assert "_connectHttp" in terminal_js
+    assert "_closeTransport(false)" in terminal_js
+    assert "_connectHttp(true)" in terminal_js
+    assert "terminal-session-active" in terminal_js
+    assert "syncSessionIndicator()" in terminal_js

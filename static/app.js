@@ -23,12 +23,12 @@ import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
 import comfyuiModule from './js/comfyui.js';
-import terminalModule from './js/terminal.js';
+import terminalModule from './js/terminal.js?v=20260613h';
 import tasksModule from './js/tasks.js';
 import calendarModule from './js/calendar.js';
 import notesModule from './js/notes.js';
 import adminModule from './js/admin.js';
-import settingsModule from './js/settings.js';
+import settingsModule from './js/settings.js?v=20260613c';
 // Eagerly bind unified minimize/restore behavior across all tool modals.
 import './js/modalManager.js';
 // Desktop window tiling — drag a modal near an edge/corner to snap.
@@ -1144,9 +1144,13 @@ function initializeEventListeners() {
   }
 
   // Fetch auth status — populate user bar and show admin button if admin
-  fetch(`${API_BASE}/api/auth/status`, { credentials: 'same-origin' })
-    .then(r => r.json())
-    .then(d => {
+  Promise.all([
+    fetch(`${API_BASE}/api/auth/status`, { credentials: 'same-origin' }).then(r => r.json()),
+    fetch(`${API_BASE}/api/prefs/avatar`, { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : {})
+      .catch(() => ({})),
+  ])
+    .then(([d, avatarPref]) => {
       window._isAdmin = !!d.is_admin;
       if (d.is_admin && userBarAdmin) userBarAdmin.style.display = '';
       ['tool-terminal-btn', 'rail-terminal'].forEach(id => {
@@ -1165,7 +1169,13 @@ function initializeEventListeners() {
           displayName = local.charAt(0) + '•••@••••' + ext;
         }
         userBarName.textContent = displayName;
-        if (userBarAvatar) userBarAvatar.textContent = d.username.charAt(0).toUpperCase();
+        if (userBarAvatar) {
+          const avatar = String(avatarPref.value || '').trim();
+          const safeAvatar = /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(avatar) ? avatar : '';
+          userBarAvatar.classList.toggle('has-image', !!safeAvatar);
+          userBarAvatar.style.backgroundImage = safeAvatar ? `url("${safeAvatar}")` : '';
+          userBarAvatar.textContent = safeAvatar ? '' : d.username.charAt(0).toUpperCase();
+        }
       }
       // Apply per-user privilege restrictions
       if (d.privileges) {
@@ -1205,6 +1215,30 @@ function initializeEventListeners() {
       }
     })
     .catch(() => {});
+
+  const refreshSidebarAvatar = async () => {
+    try {
+      const [status, avatarPref] = await Promise.all([
+        fetch(`${API_BASE}/api/auth/status`, { credentials: 'same-origin' }).then(r => r.json()).catch(() => ({})),
+        fetch(`${API_BASE}/api/prefs/avatar`, { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      ]);
+      if (!status.username) return;
+      const userBarAvatar = el('user-bar-avatar');
+      if (!userBarAvatar) return;
+      const avatar = String(avatarPref.value || '').trim();
+      const safeAvatar = /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(avatar) ? avatar : '';
+      userBarAvatar.classList.toggle('has-image', !!safeAvatar);
+      userBarAvatar.style.backgroundImage = safeAvatar ? `url("${safeAvatar}")` : '';
+      userBarAvatar.textContent = safeAvatar ? '' : status.username.charAt(0).toUpperCase();
+    } catch (_) {}
+  };
+  window.addEventListener('focus', refreshSidebarAvatar);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshSidebarAvatar();
+  });
+  window.setInterval(() => {
+    if (!document.hidden) refreshSidebarAvatar();
+  }, 30000);
   window.addEventListener('odysseus:speech-settings-changed', async () => {
     try {
       const settings = await (await fetch(`${API_BASE}/api/auth/settings`, { credentials: 'same-origin' })).json();
@@ -1222,6 +1256,17 @@ function initializeEventListeners() {
       e.stopPropagation();
       sortDropdown.style.display = sortDropdown.style.display === 'block' ? 'none' : 'block';
     });
+
+  window.addEventListener('odysseus-avatar-changed', event => {
+    const userBarAvatar = el('user-bar-avatar');
+    if (!userBarAvatar) return;
+    const detail = event.detail || {};
+    const avatar = String(detail.avatar || '').trim();
+    const safeAvatar = /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(avatar) ? avatar : '';
+    userBarAvatar.classList.toggle('has-image', !!safeAvatar);
+    userBarAvatar.style.backgroundImage = safeAvatar ? `url("${safeAvatar}")` : '';
+    userBarAvatar.textContent = safeAvatar ? '' : String(detail.username || '?').charAt(0).toUpperCase();
+  });
     document.addEventListener('click', () => { sortDropdown.style.display = 'none'; });
     sortDropdown.addEventListener('click', (e) => e.stopPropagation());
 

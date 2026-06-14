@@ -18,6 +18,65 @@ function safeRasterDataUrl(raw) {
   return /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(value) ? value : '';
 }
 
+function applyAvatar(avatarEl, avatar, username) {
+  if (!avatarEl) return;
+  const safeAvatar = safeRasterDataUrl(avatar);
+  avatarEl.classList.toggle('has-image', !!safeAvatar);
+  avatarEl.style.backgroundImage = safeAvatar ? `url("${safeAvatar}")` : '';
+  avatarEl.textContent = safeAvatar ? '' : (username || '?')[0].toUpperCase();
+}
+
+function resizeAvatar(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\/(?:png|jpeg|gif|webp)$/i.test(file.type)) {
+      reject(new Error('Choose a PNG, JPEG, GIF, or WebP image'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error('Avatar must be smaller than 5 MB'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that image'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('Could not decode that image'));
+      image.onload = () => {
+        const size = 256;
+        const crop = Math.min(image.naturalWidth, image.naturalHeight);
+        const sx = (image.naturalWidth - crop) / 2;
+        const sy = (image.naturalHeight - crop) / 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, sx, sy, crop, crop, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/webp', 0.86));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function fetchAvatarPref() {
+  return fetch('/api/prefs/avatar', { credentials: 'same-origin' })
+    .then(r => (r && r.ok) ? r.json() : {})
+    .catch(() => ({}));
+}
+
+async function loadAccountSnapshot() {
+  const [auth, pref] = await Promise.all([
+    fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => r.json()).catch(() => ({})),
+    fetchAvatarPref(),
+  ]);
+  return {
+    username: auth.username || '',
+    role: auth.is_admin ? 'Admin' : 'User',
+    avatar: safeRasterDataUrl(pref.value),
+  };
+}
+
 /* ── Tab switching ── */
 const ADMIN_TABS = new Set(['services', 'integrations', 'tools', 'users', 'system']);
 
@@ -2050,20 +2109,125 @@ async function initShortcuts() {
    INIT & REFRESH
    ═══════════════════════════════════════════ */
 function initAccount() {
+  let accountUsername = '';
+  let accountAvatar = '';
+  const avatarEl = el('settings-account-avatar');
+  const avatarInput = el('settings-avatar-input');
+  const avatarUpload = el('settings-avatar-upload');
+  const avatarRemove = el('settings-avatar-remove');
+  const avatarMsg = el('settings-avatar-msg');
+
+  function renderAccountAvatar() {
+    applyAvatar(avatarEl, accountAvatar, accountUsername);
+    if (avatarRemove) avatarRemove.disabled = !accountAvatar;
+  }
+
+  async function saveAvatar(value) {
+    const res = await fetch('/api/prefs/avatar', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    if (!res.ok) throw new Error('Could not save avatar');
+    accountAvatar = value;
+    renderAccountAvatar();
+    window.dispatchEvent(new CustomEvent('odysseus-avatar-changed', { detail: { avatar: value, username: accountUsername } }));
+  }
+
   // Populate user info
-  fetch('/api/auth/status', { credentials: 'same-origin' })
-    .then(r => r.json())
-    .then(d => {
-      const nameEl = el('settings-account-username');
-      const roleEl = el('settings-account-role');
-      const avatarEl = el('settings-account-avatar');
-      if (nameEl) nameEl.textContent = d.username || 'Unknown';
-      if (roleEl) roleEl.textContent = d.is_admin ? 'Admin' : 'User';
-      if (avatarEl) {
-        const initial = (d.username || '?')[0].toUpperCase();
-        avatarEl.textContent = initial;
+  const applySnapshot = (snapshot) => {
+    const nameEl = el('settings-account-username');
+    const roleEl = el('settings-account-role');
+    if (nameEl) nameEl.textContent = snapshot.username || 'Unknown';
+    if (roleEl) roleEl.textContent = snapshot.role || 'User';
+    accountUsername = snapshot.username || '';
+    accountAvatar = snapshot.avatar || '';
+    renderAccountAvatar();
+  };
+
+  loadAccountSnapshot().then(applySnapshot).catch(() => {});
+
+  if (avatarUpload && avatarInput) {
+    const openAvatarPicker = () => {
+      try {
+        if (typeof avatarInput.showPicker === 'function') {
+          avatarInput.showPicker();
+        } else {
+          avatarInput.click();
+        }
+      } catch (_) {
+        avatarInput.click();
       }
-    }).catch(() => {});
+    };
+    window.odysseusOpenAvatarPicker = openAvatarPicker;
+    avatarUpload.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      openAvatarPicker();
+    });
+    avatarUpload.addEventListener('click', e => {
+      e.preventDefault();
+      openAvatarPicker();
+    });
+    avatarInput.addEventListener('change', async () => {
+      const file = avatarInput.files && avatarInput.files[0];
+      avatarInput.value = '';
+      if (!file) return;
+      avatarUpload.classList.add('is-disabled');
+      avatarUpload.setAttribute('aria-disabled', 'true');
+      if (avatarMsg) avatarMsg.textContent = 'Preparing avatar...';
+      try {
+        const form = new FormData();
+        form.append('file', file, file.name || 'avatar');
+        const response = await fetch('/api/prefs/avatar/upload', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: form,
+        });
+        if (!response.ok) {
+          let detail = '';
+          try { detail = (await response.json()).detail || ''; } catch (_) {}
+          throw new Error(detail || `Could not save avatar (HTTP ${response.status})`);
+        }
+        const result = await response.json();
+        accountAvatar = safeRasterDataUrl(result.value);
+        renderAccountAvatar();
+        window.dispatchEvent(new CustomEvent('odysseus-avatar-changed', {
+          detail: { avatar: accountAvatar, username: accountUsername },
+        }));
+        if (avatarMsg) avatarMsg.textContent = 'Avatar updated';
+      } catch (e) {
+        if (avatarMsg) avatarMsg.textContent = e.message;
+      } finally {
+        avatarUpload.classList.remove('is-disabled');
+        avatarUpload.removeAttribute('aria-disabled');
+      }
+    });
+  }
+  if (avatarRemove) {
+    avatarRemove.addEventListener('click', async () => {
+      avatarRemove.disabled = true;
+      try {
+        await saveAvatar('');
+        if (avatarMsg) avatarMsg.textContent = 'Avatar removed';
+      } catch (e) {
+        if (avatarMsg) avatarMsg.textContent = e.message;
+        renderAccountAvatar();
+      }
+    });
+  }
+
+  let refreshTimer = null;
+  const refreshFromServer = () => loadAccountSnapshot().then(applySnapshot).catch(() => {});
+  if (!refreshTimer) {
+    refreshTimer = window.setInterval(() => {
+      if (!document.hidden) refreshFromServer();
+    }, 30000);
+  }
+  window.addEventListener('focus', refreshFromServer);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshFromServer();
+  });
 
   // Change password
   const saveBtn = el('settings-pw-save');
@@ -2232,6 +2396,9 @@ function initAll() {
   initClose();
   initOpacityToggle();
   initialized = true;
+  // Account controls should remain available if another settings tab fails
+  // during initialization.
+  initAccount();
   initDefaultChat();
   initTeacherModel();
   initUtilityModel();
@@ -2245,7 +2412,6 @@ function initAll() {
   initAgentSettings();
   initAppearance();
   initShortcuts();
-  initAccount();
   initIntegrations();
   initEmailSettings();
   initEmailAccountsSettings();

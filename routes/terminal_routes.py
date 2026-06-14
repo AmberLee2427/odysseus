@@ -114,8 +114,12 @@ def setup_terminal_routes(auth_manager) -> APIRouter:
         username = _require_admin_request(request, auth_manager)
         _prune_http_terminals()
         for old_id, session in list(_http_sessions.items()):
-            if session["owner"] == username:
-                _drop_http_terminal(old_id)
+            if session["owner"] == username and not session["closed"]:
+                if request.query_params.get("new") == "1":
+                    _drop_http_terminal(old_id)
+                    break
+                session["last_active"] = time.monotonic()
+                return {"id": old_id, "reused": True}
         pid, master_fd = _spawn_terminal()
         os.set_blocking(master_fd, False)
         _resize(master_fd, 100, 30)
@@ -127,7 +131,16 @@ def setup_terminal_routes(auth_manager) -> APIRouter:
             "closed": False,
             "last_active": time.monotonic(),
         }
-        return {"id": session_id}
+        return {"id": session_id, "reused": False}
+
+    @router.get("/api/terminal/session")
+    async def terminal_session_status(request: Request):
+        username = _require_admin_request(request, auth_manager)
+        _prune_http_terminals()
+        for session_id, session in _http_sessions.items():
+            if session["owner"] == username and not session["closed"]:
+                return {"active": True, "id": session_id}
+        return {"active": False, "id": None}
 
     def owned_session(request: Request, session_id: str) -> dict:
         username = _require_admin_request(request, auth_manager)

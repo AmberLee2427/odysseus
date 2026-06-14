@@ -12,6 +12,23 @@ let _libraryPromise = null;
 let _panelObserver = null;
 let _themeObserver = null;
 
+function _setSessionDot(active) {
+  ['tool-terminal-btn', 'rail-terminal'].forEach(id => {
+    document.getElementById(id)?.classList.toggle('terminal-session-active', active);
+  });
+}
+
+export async function syncSessionIndicator() {
+  try {
+    const response = await fetch('/api/terminal/session', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (!response.ok) return;
+    _setSessionDot(!!(await response.json()).active);
+  } catch (_) {}
+}
+
 function _loadLibrary() {
   if (!_libraryPromise) {
     _libraryPromise = Promise.all([
@@ -73,67 +90,25 @@ function _fit() {
 }
 
 function _connect() {
-  _closeTransport();
-  if (_socket) {
-    _socket.onclose = null;
-    _socket.close();
-  }
+  _closeTransport(false);
   _terminal?.reset();
   _terminal?.writeln('\x1b[90mConnecting to the Odysseus container...\x1b[0m');
   _setStatus('connecting', 'connecting');
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  let opened = false;
-  const socket = new WebSocket(`${protocol}//${window.location.host}/api/terminal/ws`);
-  _socket = socket;
-  const fallbackTimer = setTimeout(() => {
-    if (!opened && _socket === socket) {
-      socket.onclose = null;
-      socket.close();
-      _socket = null;
-      _connectHttp();
-    }
-  }, 4000);
-  socket.binaryType = 'arraybuffer';
-  socket.onopen = () => {
-    clearTimeout(fallbackTimer);
-    opened = true;
-    _setStatus('container shell', 'connected');
-    _fit();
-    _terminal?.focus();
-  };
-  socket.onmessage = (event) => {
-    if (event.data instanceof ArrayBuffer) {
-      _terminal?.write(new Uint8Array(event.data));
-    } else if (event.data instanceof Blob) {
-      event.data.arrayBuffer().then(data => _terminal?.write(new Uint8Array(data)));
-    } else {
-      _terminal?.write(String(event.data));
-    }
-  };
-  socket.onerror = () => _setStatus('connection error', 'error');
-  socket.onclose = (event) => {
-    clearTimeout(fallbackTimer);
-    if (_socket === socket) _socket = null;
-    if (!opened && _open) {
-      _connectHttp();
-      return;
-    }
-    _setStatus('disconnected', 'error');
-    if (event.reason) _terminal?.writeln(`\r\n\x1b[31m${event.reason}\x1b[0m`);
-  };
+  _connectHttp(true);
 }
 
-async function _connectHttp() {
+async function _connectHttp(forceNew = false) {
   _setStatus('connecting through proxy', 'connecting');
   try {
-    const response = await fetch('/api/terminal/session', {
+    const response = await fetch(`/api/terminal/session${forceNew ? '?new=1' : ''}`, {
       method: 'POST',
       credentials: 'same-origin',
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    _httpSession = (await response.json()).id;
-    _setStatus('container shell | proxy mode', 'connected');
+    const session = await response.json();
+    _httpSession = session.id;
+    _setSessionDot(true);
+    _setStatus(session.reused ? 'reconnected' : 'connected', 'connected');
     _fit();
     _terminal?.focus();
     _pollHttp();
@@ -157,6 +132,7 @@ async function _pollHttp() {
       if (data.length) _terminal?.write(data);
       if (response.headers.get('X-Terminal-Closed') === '1') {
         _setStatus('shell exited', 'error');
+        _setSessionDot(false);
         break;
       }
       await new Promise(resolve => setTimeout(resolve, data.length ? 20 : 160));
@@ -168,7 +144,7 @@ async function _pollHttp() {
   }
 }
 
-function _closeTransport() {
+function _closeTransport(terminate = false) {
   if (_socket) {
     _socket.onclose = null;
     _socket.close();
@@ -177,11 +153,13 @@ function _closeTransport() {
   if (_httpSession) {
     const session = _httpSession;
     _httpSession = null;
-    fetch(`/api/terminal/session/${session}`, {
-      method: 'DELETE',
-      credentials: 'same-origin',
-      keepalive: true,
-    }).catch(() => {});
+    if (terminate) {
+      fetch(`/api/terminal/session/${session}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        keepalive: true,
+      }).then(() => _setSessionDot(false)).catch(() => {});
+    }
   }
 }
 
@@ -194,14 +172,18 @@ async function _mount() {
   _panel.innerHTML = `
     <div class="modal-content terminal-modal-content">
       <header class="modal-header">
-        <h4>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><line x1="13" y1="15" x2="17" y2="15"/></svg>
-          Terminal
-        </h4>
-        <span id="terminal-status" class="terminal-status">disconnected</span>
-        <span class="terminal-scope">container | /app</span>
-        <button type="button" id="terminal-new" class="terminal-header-btn" title="Close this shell and start a new one">New shell</button>
-        <button type="button" id="terminal-close" class="modal-close" title="Close Terminal" aria-label="Close Terminal">&times;</button>
+        <div class="terminal-title-group">
+          <h4>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><line x1="13" y1="15" x2="17" y2="15"/></svg>
+            Terminal
+          </h4>
+          <span class="terminal-scope">container &middot; /app</span>
+        </div>
+        <div class="terminal-header-actions">
+          <span id="terminal-status" class="terminal-status">disconnected</span>
+          <button type="button" id="terminal-new" class="terminal-header-btn" title="Close this shell and start a new one">New shell</button>
+          <button type="button" id="terminal-close" class="modal-close" title="Close Terminal" aria-label="Close Terminal">&times;</button>
+        </div>
       </header>
       <div id="terminal-screen" class="terminal-screen"></div>
     </div>
@@ -268,7 +250,7 @@ export async function open() {
     panel.style.display = 'flex';
     _open = true;
     _setActive(true);
-    if (!_socket || _socket.readyState > WebSocket.OPEN) _connect();
+    if (!_httpSession) _connectHttp();
     requestAnimationFrame(_fit);
     _terminal?.focus();
   } catch (error) {
@@ -289,7 +271,7 @@ function _destroy() {
   if (!_panel) return;
   _open = false;
   _setActive(false);
-  _closeTransport();
+  _closeTransport(false);
   _panelObserver?.disconnect();
   _themeObserver?.disconnect();
   _panelObserver = null;
@@ -319,3 +301,9 @@ export function isOpen() {
 }
 
 export default { open, close, toggle, isOpen };
+
+syncSessionIndicator();
+window.addEventListener('focus', syncSessionIndicator);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) syncSessionIndicator();
+});

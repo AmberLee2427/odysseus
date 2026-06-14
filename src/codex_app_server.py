@@ -40,7 +40,11 @@ def _conversation_prompt(messages: list[dict[str, Any]]) -> tuple[str, str]:
     instructions = "\n\n".join(system_parts)
     instructions += (
         "\n\nYou are serving as a conversational model inside Odysseus. "
-        "Do not inspect files, run shell commands, or modify the workspace. "
+        "Do not call Codex app-server tools directly. When the supplied "
+        "instructions describe Odysseus tools, request them by emitting the "
+        "exact textual tool syntax they specify; Odysseus will execute them "
+        "and return their results. Do not claim those tools or the active "
+        "workspace are unavailable merely because you cannot call Codex tools. "
         "Follow the supplied conversation and return the assistant's next response."
     )
     return instructions.strip(), "\n\n".join(transcript).strip()
