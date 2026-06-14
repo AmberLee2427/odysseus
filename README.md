@@ -404,6 +404,10 @@ Key settings:
 | `ODYSSEUS_WORKSPACE_HOST_PATH` | `.` | Host directory mounted read/write at `/workspace` for the agent and terminal. Set to `..` to expose the repository's parent. |
 | `ODYSSEUS_AGENT_WORKDIR` | `/workspace` in Docker | Default working directory for agent shell and Python tools. |
 | `ODYSSEUS_TERMINAL_CWD` | `/workspace` in Docker | Default working directory for the built-in terminal. |
+| `ODYSSEUS_LOGSEQ_GRAPH_DIR` | `data/logseq-graph` | Logseq Markdown graph used by `/api/logseq` and the `manage_logseq` agent tool. In Docker, point this at a graph visible under `/workspace` to use an external graph. |
+
+See [docs/logseq-integration.md](docs/logseq-integration.md) for setup, API,
+agent-tool actions, and the intentionally deferred scope.
 
 To use the ComfyUI sidebar panel from other machines on the same LAN, start
 ComfyUI on a LAN-reachable interface:

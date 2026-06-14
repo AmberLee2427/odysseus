@@ -51,6 +51,7 @@ _COMMON_TOOL_NAMES = {
     "manage_contact",
     "manage_documents",
     "manage_endpoints",
+    "manage_logseq",
     "manage_mcp",
     "manage_memory",
     "manage_notes",

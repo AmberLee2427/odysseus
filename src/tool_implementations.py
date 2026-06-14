@@ -2040,6 +2040,59 @@ async def do_manage_notes(content: str, owner: Optional[str] = None) -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# Logseq graph management tool
+# ---------------------------------------------------------------------------
+
+async def do_manage_logseq(content: str, owner: Optional[str] = None) -> Dict:
+    """Read and update the shared, filesystem-backed Logseq graph."""
+    from src.logseq_graph import LogseqGraph
+
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+
+    action = str(args.get("action") or "list").strip().lower().replace("-", "_")
+    graph = LogseqGraph()
+    try:
+        if action == "status":
+            return {"status": graph.status(), "exit_code": 0}
+        if action in {"list", "search"}:
+            pages = graph.list_pages(
+                query=str(args.get("query") or ""),
+                tag=str(args.get("tag") or ""),
+                limit=int(args.get("limit") or 50),
+            )
+            return {"pages": pages, "response": f"Found {len(pages)} Logseq page(s).", "exit_code": 0}
+        if action in {"read", "get"}:
+            page = graph.get_page(str(args.get("title") or ""))
+            if not page:
+                return {"error": "Logseq page not found", "exit_code": 1}
+            page["content"] = _truncate(page["content"], MAX_READ_CHARS)
+            return {"page": page, "response": page["content"], "exit_code": 0}
+        if action in {"write", "upsert", "create", "update"}:
+            page = graph.upsert_page(
+                str(args.get("title") or ""),
+                str(args.get("content") or ""),
+                args.get("properties") if isinstance(args.get("properties"), dict) else {},
+            )
+            return {"page": page, "response": f"Saved Logseq page '{page['title']}'.", "exit_code": 0}
+        if action == "append":
+            page = graph.append_to_page(
+                str(args.get("title") or ""),
+                str(args.get("content") or ""),
+            )
+            return {"page": page, "response": f"Appended to Logseq page '{page['title']}'.", "exit_code": 0}
+        if action == "backlinks":
+            title = str(args.get("title") or "")
+            links = graph.backlinks(title)
+            return {"backlinks": links, "response": f"Found {len(links)} backlink(s).", "exit_code": 0}
+        return {"error": f"Unknown action: {action}", "exit_code": 1}
+    except (OSError, ValueError) as exc:
+        return {"error": str(exc), "exit_code": 1}
+
+
+# ---------------------------------------------------------------------------
 # Calendar tool — CalDAV-backed event CRUD
 # ---------------------------------------------------------------------------
 

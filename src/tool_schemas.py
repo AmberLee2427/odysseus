@@ -594,6 +594,26 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "manage_logseq",
+            "description": "Manage the shared Logseq knowledge graph. Use for durable Markdown knowledge pages, graph search, tags, links, and backlinks. This does not replace Google Keep-style reminders/checklists or editor-panel documents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["status", "list", "search", "read", "write", "append", "backlinks"]},
+                    "title": {"type": "string", "description": "Logseq page title for read/write/append/backlinks"},
+                    "content": {"type": "string", "description": "Markdown page content or text to append"},
+                    "properties": {"type": "object", "description": "Logseq page properties to merge when writing"},
+                    "query": {"type": "string", "description": "Text search across page titles, tags, and content"},
+                    "tag": {"type": "string", "description": "Exact tag filter, with or without #"},
+                    "limit": {"type": "integer", "description": "Maximum results, default 50"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "api_call",
             "description": "Call a registered API integration (RSS reader, git forge, bookmark manager, smart home, etc.). Check the system context for available integrations and their endpoints.",
             "parameters": {
@@ -1362,7 +1382,8 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
             content = action
     elif tool_type in ("manage_tasks", "manage_skills", "api_call",
                         "manage_endpoints", "manage_mcp", "manage_webhooks",
-                        "manage_tokens", "manage_documents", "manage_settings"):
+                        "manage_tokens", "manage_documents", "manage_settings",
+                        "manage_logseq"):
         content = json.dumps(args)
     elif tool_type == "ask_teacher":
         content = args.get("model", "auto") + "\n" + args.get("problem", "")
