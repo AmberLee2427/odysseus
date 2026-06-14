@@ -73,7 +73,7 @@ ASSISTANT_ALWAYS_AVAILABLE = frozenset({
     "list_email_accounts", "list_emails", "read_email", "send_email", "reply_to_email",
     "bulk_email", "archive_email", "delete_email", "mark_email_read",
     "manage_calendar", "manage_notes", "manage_tasks",
-    "manage_memory", "web_search", "read_file",
+    "manage_memory", "manage_logseq", "web_search", "read_file",
     "create_document", "update_document",
     "resolve_contact", "search_chats",
     "api_call",  # For Miniflux/Gitea/Linkding/etc. integrations
@@ -111,6 +111,7 @@ BUILTIN_TOOL_DESCRIPTIONS: Dict[str, str] = {
     "list_models": "List all available AI models and their endpoints.",
     "manage_session": "Chat management: rename, archive, delete, or fork chats (the UI calls these 'chats'; internally 'sessions'). Use for 'rename my chats', 'rename this chat', 'archive/delete a chat'.",
     "manage_memory": "Memory management: list, add, edit, delete, or search persistent memories.",
+    "manage_logseq": "Manage the shared Logseq knowledge graph: search, read, write, append, inspect tags and backlinks. Use for durable project notes, linked knowledge pages, and research notes. Not for reminders/todos or compact personal memory.",
     "manage_skills": "Skill management: add, update, publish, or search reusable skills/presets.",
     "manage_tasks": "Scheduled task management: list, create, edit, delete, pause, resume, or run cron tasks.",
     "manage_endpoints": "Endpoint management: list, add, delete, enable, or disable model API endpoints.",
@@ -368,6 +369,10 @@ class ToolIndex:
             {"manage_calendar"},
         frozenset({"note", "todo", "reminder", "remind", "checklist", "remember to"}):
             {"manage_notes"},
+        frozenset({"logseq", "knowledge graph", "knowledge base", "wiki", "backlink",
+                   "backlinks", "linked note", "linked notes", "project notes",
+                   "durable notes", "knowledge page", "knowledge pages"}):
+            {"manage_logseq"},
         # Chat/session management. "rename" alone maps to documents below, so a
         # request like "rename the last 12 sessions/chats" needs these session
         # keywords to surface the right tools (NOT app_api — /api/sessions is

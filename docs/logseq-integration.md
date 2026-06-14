@@ -50,6 +50,22 @@ Admins have a `manage_logseq` agent tool with these actions:
 
 The tool is blocked for non-admin users and while the agent is in plan mode.
 
+It appears under **Knowledge** in the Admin built-in tool settings and in the
+Personal Assistant tool-access picker. The default scheduled assistant is
+automatically granted access to it.
+
+## Housekeeping
+
+Existing built-in tidy runs remain deliberately separate:
+
+- Editor Documents Tidy affects only editor-panel documents.
+- Agent Memory Tidy affects only compact agent memories.
+- Research Tidy affects only broken research JSON files.
+
+None of these inspect, rewrite, or delete Logseq pages. Automated Logseq cleanup
+is deferred until the graph has revision history and an explicit deletion
+policy.
+
 ## Deferred
 
 This phase does not include collaborative editing, migrations from existing

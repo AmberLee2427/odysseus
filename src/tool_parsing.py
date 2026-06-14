@@ -175,6 +175,10 @@ _TOOL_NAME_MAP = {
     "notes": "manage_notes",
     "todo": "manage_notes",
     "todos": "manage_notes",
+    "manage_logseq": "manage_logseq",
+    "logseq": "manage_logseq",
+    "knowledge_graph": "manage_logseq",
+    "knowledge": "manage_logseq",
 }
 
 _MISFENCED_WEB_TOOL_NAMES = {

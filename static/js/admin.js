@@ -1308,9 +1308,14 @@ const TOOL_META = {
   suggest_document:  { name: 'Suggest Changes',  desc: 'Propose document edits',          cat: 'Documents',  ctx: '~200' },
   manage_documents:  { name: 'Manage Documents', desc: 'List, delete, organize docs',     cat: 'Documents',  ctx: '~150' },
   generate_image:    { name: 'Generate Image',   desc: 'Create images via AI',            cat: 'Media',      ctx: '~150' },
+  manage_calendar:   { name: 'Calendar',         desc: 'Manage calendar events',           cat: 'Calendar & Notes', ctx: '~200' },
+  manage_notes:      { name: 'Notes & Reminders',desc: 'Manage notes, todos, reminders',   cat: 'Calendar & Notes', ctx: '~200' },
+  manage_tasks:      { name: 'Scheduled Tasks',  desc: 'Schedule automated tasks',         cat: 'Calendar & Notes', ctx: '~150' },
   manage_memory:     { name: 'Memory',           desc: 'Save and recall memories',        cat: 'Knowledge',  ctx: '~200' },
+  manage_logseq:     { name: 'Logseq Knowledge', desc: 'Manage linked knowledge pages',   cat: 'Knowledge',  ctx: '~200' },
   manage_skills:     { name: 'Skills',           desc: 'Learn and use procedures',        cat: 'Knowledge',  ctx: '~200' },
   manage_rag:        { name: 'RAG / Docs',       desc: 'Query indexed documents',         cat: 'Knowledge',  ctx: '~150' },
+  manage_research:   { name: 'Research Library', desc: 'Manage saved research reports',   cat: 'Knowledge',  ctx: '~150' },
   chat_with_model:   { name: 'Chat with Model',  desc: 'Talk to another AI model',        cat: 'Multi-Agent', ctx: '~200' },
   second_opinion:    { name: 'Second Opinion',   desc: 'Get another model\'s take',       cat: 'Multi-Agent', ctx: '~150' },
   pipeline:          { name: 'Pipeline',         desc: 'Multi-step AI workflows',         cat: 'Multi-Agent', ctx: '~200' },
@@ -1321,7 +1326,6 @@ const TOOL_META = {
   manage_session:    { name: 'Manage Session',   desc: 'Rename, archive, configure',      cat: 'Sessions',   ctx: '~100' },
   list_models:       { name: 'List Models',      desc: 'Show available models',           cat: 'System',     ctx: '~100' },
   ui_control:        { name: 'UI Control',       desc: 'Change theme, layout, settings',  cat: 'System',     ctx: '~150' },
-  manage_tasks:      { name: 'Tasks',            desc: 'Schedule automated tasks',        cat: 'System',     ctx: '~150' },
   api_call:          { name: 'API Call',         desc: 'Make HTTP requests',              cat: 'System',     ctx: '~200' },
   manage_endpoints:  { name: 'Endpoints',        desc: 'Add/remove model endpoints',      cat: 'System',     ctx: '~100' },
   manage_mcp:        { name: 'MCP Servers',      desc: 'Manage MCP connections',          cat: 'System',     ctx: '~100' },
@@ -1349,7 +1353,7 @@ async function loadBuiltinTools() {
     }
 
     // Category order
-    const catOrder = ['Code', 'Search', 'Documents', 'Media', 'Knowledge', 'Multi-Agent', 'Sessions', 'System', 'Other'];
+    const catOrder = ['Code', 'Search', 'Documents', 'Media', 'Calendar & Notes', 'Knowledge', 'Multi-Agent', 'Sessions', 'System', 'Other'];
     let html = '';
     for (const cat of catOrder) {
       const items = groups[cat];

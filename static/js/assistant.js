@@ -122,11 +122,11 @@ function _esc(s) {
 const TOOL_GROUPS = {
   'Email': ['list_emails', 'read_email', 'send_email', 'reply_to_email', 'archive_email', 'delete_email', 'mark_email_read'],
   'Calendar & Notes': ['manage_calendar', 'manage_notes', 'manage_tasks'],
-  'Knowledge': ['web_search', 'read_file', 'manage_memory', 'manage_rag', 'search_chats'],
+  'Knowledge': ['web_search', 'read_file', 'manage_memory', 'manage_logseq', 'manage_rag', 'manage_research', 'manage_skills', 'search_chats'],
   'Code': ['bash', 'python', 'write_file'],
-  'Documents': ['create_document', 'edit_document', 'update_document', 'suggest_document'],
+  'Documents': ['create_document', 'edit_document', 'update_document', 'suggest_document', 'manage_documents'],
   'AI & Models': ['chat_with_model', 'second_opinion', 'ask_teacher', 'pipeline', 'list_models', 'generate_image'],
-  'System': ['manage_session', 'manage_endpoints', 'manage_mcp', 'manage_settings', 'manage_skills', 'manage_webhooks', 'manage_tokens', 'manage_documents', 'create_session', 'list_sessions', 'send_to_session', 'ui_control'],
+  'System': ['manage_session', 'manage_endpoints', 'manage_mcp', 'manage_settings', 'manage_webhooks', 'manage_tokens', 'create_session', 'list_sessions', 'send_to_session', 'ui_control'],
 };
 
 async function _fetchEndpoints() {

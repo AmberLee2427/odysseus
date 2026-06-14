@@ -59,7 +59,7 @@ async def action_tidy_sessions(owner: str, **kwargs) -> Tuple[str, bool]:
 
 
 async def action_tidy_documents(owner: str, **kwargs) -> Tuple[str, bool]:
-    """Run tidy on documents for the owner."""
+    """Tidy editor-panel documents only; never inspect the Logseq graph."""
     try:
         from src.document_actions import run_document_tidy
         result = await run_document_tidy(owner)
@@ -70,7 +70,7 @@ async def action_tidy_documents(owner: str, **kwargs) -> Tuple[str, bool]:
 
 
 async def action_consolidate_memory(owner: str, **kwargs) -> Tuple[str, bool]:
-    """Consolidate/deduplicate memories for the owner."""
+    """Consolidate agent memories only; never inspect the Logseq graph."""
     try:
         import json
         import re
@@ -140,7 +140,8 @@ async def action_consolidate_memory(owner: str, **kwargs) -> Tuple[str, bool]:
                     "Remove memories that are empty, broken, trivial conversation filler, duplicates, or obsolete "
                     "because a clearer newer memory replaces them. Preserve useful personal facts, preferences, "
                     "contacts, project context, and instructions. If memories conflict, keep the clearest/latest "
-                    "one and drop the obsolete one.\n\n"
+                    "one and drop the obsolete one. Logseq is a separate knowledge store: do not assume a Logseq "
+                    "page replaces any memory, and judge only the memory rows provided here.\n\n"
                     "JSON shape:\n"
                     "{\"keep\":[{\"id\":\"existing id\",\"text\":\"cleaned text\",\"category\":\"fact|preference|identity|event|contact|project|instruction\"}],"
                     "\"drop\":[{\"id\":\"existing id\",\"reason\":\"short reason\"}]}\n\n"
@@ -2220,10 +2221,10 @@ BUILTIN_ACTIONS = {
 
 # Descriptions for the UI/API
 BUILTIN_ACTION_INFO = {
-    "tidy_sessions": "Clean up empty chat sessions and auto-sort into folders",
-    "tidy_documents": "Remove junk/empty documents",
-    "consolidate_memory": "Remove duplicate memories",
-    "tidy_research": "Remove orphaned research files (sessions that were deleted)",
+    "tidy_sessions": "Clean up empty chat sessions. Does not touch notes, memories, documents, or Logseq.",
+    "tidy_documents": "Remove junk/empty editor-panel documents. Does not touch Logseq knowledge pages.",
+    "consolidate_memory": "Remove duplicate agent memories. Does not touch Logseq knowledge pages.",
+    "tidy_research": "Remove broken research JSON files. Does not touch Logseq knowledge pages.",
     "summarize_emails": "Pre-generate AI summaries for new inbox emails",
     "draft_email_replies": "Pre-draft AI reply suggestions for new inbox emails",
     "extract_email_events": "Scan emails for booking/meeting confirmations and auto-add to calendar",

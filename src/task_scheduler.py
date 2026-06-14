@@ -204,9 +204,9 @@ def _resolve_task_timezone(db, task) -> str | None:
 # "cron" uses cron_expression.
 HOUSEKEEPING_DEFAULTS = {
     "tidy_sessions":        {"name": "Chat Sessions Tidy",       "trigger_type": "event", "trigger_event": "session_created", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Chat Sessions"]},
-    "tidy_documents":       {"name": "Documents Tidy",           "trigger_type": "event", "trigger_event": "document_created", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Documents"]},
-    "consolidate_memory":   {"name": "Memory Tidy",              "trigger_type": "event", "trigger_event": "memory_added", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Memory"]},
-    "tidy_research":        {"name": "Research Tidy",            "trigger_type": "event", "trigger_event": "research_completed", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Research"]},
+    "tidy_documents":       {"name": "Editor Documents Tidy",    "trigger_type": "event", "trigger_event": "document_created", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Documents", "Documents Tidy"]},
+    "consolidate_memory":   {"name": "Agent Memory Tidy",        "trigger_type": "event", "trigger_event": "memory_added", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Memory", "Memory Tidy"]},
+    "tidy_research":        {"name": "Research Files Tidy",      "trigger_type": "event", "trigger_event": "research_completed", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Research", "Research Tidy"]},
     "summarize_emails":     {"name": "Email (Summary)",          "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */2 * * *", "ship_paused": True, "legacy_names": ["Tidy Email (Summary)"]},
     "draft_email_replies":  {"name": "Email AI Auto Reply",      "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */2 * * *", "ship_paused": True, "legacy_names": ["Tidy Email (Replies)", "AI Auto Reply"]},
     "extract_email_events": {"name": "Email Calendar Events",    "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */1 * * *", "ship_paused": True, "legacy_names": ["Email → Calendar Events"]},
@@ -2179,6 +2179,17 @@ class TaskScheduler:
                 CrewMember.is_default_assistant == True,  # noqa: E712
             ).first()
             if existing:
+                # New core knowledge capabilities should be available to the
+                # default scheduled assistant without requiring users to find
+                # and enable them manually. Preserve every existing selection.
+                try:
+                    enabled = json.loads(existing.enabled_tools) if existing.enabled_tools else []
+                    if isinstance(enabled, list) and "manage_logseq" not in enabled:
+                        enabled.append("manage_logseq")
+                        existing.enabled_tools = json.dumps(enabled)
+                        db.commit()
+                except Exception:
+                    db.rollback()
                 return  # already seeded
 
             # Resolve a default model/endpoint from any existing session so the
@@ -2213,8 +2224,9 @@ class TaskScheduler:
                 "ESCALATION LADDER (when you need info you don't have):\n"
                 "1. search_chats (fast, free)\n"
                 "2. manage_memory (fast, free)\n"
-                "3. web_search (medium cost)\n"
-                "4. trigger_research (expensive, async — only for complex multi-source questions)\n"
+                "3. manage_logseq for durable project/topic knowledge (fast, free)\n"
+                "4. web_search (medium cost)\n"
+                "5. trigger_research (expensive, async — only for complex multi-source questions)\n"
                 "Stop as soon as you have a sufficient answer.\n\n"
 
                 "'SEND TO [NAME]' FLOW:\n"
@@ -2223,9 +2235,14 @@ class TaskScheduler:
                 "3. Draft the email in a document (create_document with language='email')\n"
                 "4. Tell the user to review — NEVER auto-send\n\n"
 
-                "SELF-IMPROVEMENT — use manage_memory constantly:\n"
+                "KNOWLEDGE STORAGE:\n"
+                "- Use manage_logseq for durable knowledge pages, project notes, linked research notes, and anything the user wants in their shared knowledge graph.\n"
+                "- Use manage_notes for reminders, todos, and short Keep-style notes. Use manage_memory only for compact personal facts, preferences, and instructions.\n"
+                "- Never delete or tidy Logseq pages unless the user explicitly asks; built-in document/memory tidy tasks do not manage the Logseq graph.\n\n"
+
+                "SELF-IMPROVEMENT — use the right durable store:\n"
                 "- When the user corrects you, IMMEDIATELY store the correction as a memory.\n"
-                "- After every check-in or task, store new facts you learned (contacts, preferences, patterns).\n"
+                "- After every check-in or task, store compact personal facts/preferences in memory; store durable project/topic notes in Logseq.\n"
                 "- Before responding about a person or topic, search_chats and manage_memory FIRST.\n"
                 "- Build knowledge over time: who people are, what projects are active, how the user likes things done.\n"
                 "- If something failed or you got corrected, store WHY so you never repeat it.\n"
@@ -2271,7 +2288,7 @@ class TaskScheduler:
                 endpoint_url=endpoint_url,
                 greeting=None,
                 enabled_tools=json.dumps([
-                    "manage_calendar", "manage_notes", "manage_tasks", "manage_memory",
+                    "manage_calendar", "manage_notes", "manage_tasks", "manage_memory", "manage_logseq",
                     "list_email_accounts", "list_emails", "read_email", "send_email", "reply_to_email", "archive_email",
                     "mark_email_read", "delete_email", "resolve_contact",
                     "search_chats", "web_search", "web_fetch", "read_file",
