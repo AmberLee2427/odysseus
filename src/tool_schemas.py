@@ -82,13 +82,13 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file from disk. Optionally read a line range with offset/limit for large files.",
+            "description": "Read a file from disk. Optionally read a line range for large files. `offset` and `limit` are LINE counts, not byte counts.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "File path to read"},
-                    "offset": {"type": "integer", "description": "1-based line to start reading from (optional)"},
-                    "limit": {"type": "integer", "description": "Max number of lines to read from offset (optional)"}
+                    "offset": {"type": "integer", "description": "1-based LINE NUMBER to start reading from (optional). This is not a byte offset."},
+                    "limit": {"type": "integer", "description": "Maximum number of LINES to read from offset (optional). This is not a byte limit."}
                 },
                 "required": ["path"]
             }

@@ -28,6 +28,10 @@ class AITTSManager {
         this.checkAvailability();
     }
 
+    _notifyState(active) {
+        window.dispatchEvent(new CustomEvent(active ? 'odysseus:tts-started' : 'odysseus:tts-stopped'));
+    }
+
     async checkAvailability() {
         try {
             // Check user setting first — if TTS is disabled in settings, don't show buttons
@@ -199,6 +203,7 @@ class AITTSManager {
 
         const plainText = this.extractPlainText(text);
         if (!plainText) return;
+        this._notifyState(true);
 
         if (this.useBrowserTTS) {
             return this._playBrowser(plainText);
@@ -210,9 +215,11 @@ class AITTSManager {
             this.currentAudio = new Audio(audioUrl);
             await this.currentAudio.play();
             this.isPlaying = true;
-            // Note: onended should be set by the caller (addAITTSButton)
-            // to reset button state when audio finishes
-
+            this.currentAudio.onended = () => {
+                this.isPlaying = false;
+                this.currentAudio = null;
+                this._notifyState(false);
+            };
         } catch (error) {
             console.error('Failed to play audio:', error);
             throw error;
@@ -221,6 +228,7 @@ class AITTSManager {
 
     async _playBrowser(plainText) {
         await this._waitForBrowserVoices();
+        this._notifyState(true);
 
         return new Promise((resolve, reject) => {
             const utterance = new SpeechSynthesisUtterance(plainText);
@@ -230,10 +238,12 @@ class AITTSManager {
 
             utterance.onend = () => {
                 this.isPlaying = false;
+                this._notifyState(false);
                 resolve();
             };
             utterance.onerror = (e) => {
                 this.isPlaying = false;
+                this._notifyState(false);
                 reject(new Error('Browser TTS error: ' + e.error));
             };
 
@@ -250,6 +260,8 @@ class AITTSManager {
             this._streamDebounceTimer = null;
         }
         this._streamSentencesSent = 0;
+        this._streamButton = null;
+        this._streamResetFn = null;
 
         // Clear the entire queue and reset all queued buttons
         for (const item of this._queue) {
@@ -268,6 +280,14 @@ class AITTSManager {
             this.currentAudio = null;
             this.isPlaying = false;
         }
+        const ICON_PLAY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
+        document.querySelectorAll('.ai-tts-button').forEach((btn) => {
+            btn.innerHTML = ICON_PLAY;
+            btn.classList.remove('playing', 'loading');
+            btn.style.color = '#6b7280';
+            btn.title = 'Read aloud';
+        });
+        this._notifyState(false);
     }
 
     /**
@@ -276,6 +296,7 @@ class AITTSManager {
      */
     enqueue(text, button, resetFn) {
         this._queue.push({ text, button, resetFn });
+        this._notifyState(true);
         if (!this._processing) {
             this._processQueue();
         }
@@ -299,6 +320,7 @@ class AITTSManager {
         }
 
         this._processing = false;
+        this._notifyState(false);
     }
 
     async _playQueueItem(item) {
@@ -341,11 +363,13 @@ class AITTSManager {
                     audio.onended = () => {
                         this.isPlaying = false;
                         if (this.currentAudio === audio) this.currentAudio = null;
+                        this._notifyState(this._queue.length > 1);
                         resolve();
                     };
                     audio.onerror = (e) => {
                         this.isPlaying = false;
                         if (this.currentAudio === audio) this.currentAudio = null;
+                        this._notifyState(this._queue.length > 1);
                         reject(new Error('Audio playback error'));
                     };
                     audio.onpause = () => {
@@ -370,6 +394,7 @@ class AITTSManager {
         this._streamActive = true;
         this._streamButton = null;
         this._streamResetFn = null;
+        this._notifyState(true);
     }
 
     streamingUpdate(accumulatedText) {
@@ -520,7 +545,7 @@ export function addAITTSButton(messageElement, text) {
         e.stopPropagation();
         const mgr = window.aiTTSManager;
 
-        if (mgr.isPlaying || mgr._processing) {
+        if (mgr.isPlaying || mgr._processing || mgr._streamActive || playButton.classList.contains('playing') || playButton.classList.contains('loading')) {
             mgr.stop();
             resetButton();
             return;

@@ -32,8 +32,9 @@ async function refreshSttProvider() {
     if (res.ok) {
       const stats = await res.json();
       _sttProvider = stats.provider || 'disabled';
-      // Notify the send button to update its icon
+      // Notify chat controls to update their speech/record affordance.
       if (window._updateSendBtnIcon) window._updateSendBtnIcon();
+      if (window._updateSpeechBtnIcon) window._updateSpeechBtnIcon();
     }
   } catch (e) {
     console.warn('Failed to fetch STT stats:', e);
@@ -58,14 +59,13 @@ function _resetRecordingUI() {
     clearInterval(recordingInterval);
     recordingInterval = null;
   }
-  // Reset send button via global callback
-  const sendBtn = document.querySelector('.send-btn');
-  if (sendBtn) {
-    sendBtn.classList.remove('recording');
-    sendBtn.dataset.mode = '';
-  }
+  const speechBtn = document.getElementById('speech-action-btn');
+  if (speechBtn) speechBtn.classList.remove('recording');
   if (window._updateSendBtnIcon) {
     setTimeout(window._updateSendBtnIcon, 50);
+  }
+  if (window._updateSpeechBtnIcon) {
+    setTimeout(window._updateSpeechBtnIcon, 50);
   }
   window.dispatchEvent(new CustomEvent('odysseus:recording-state', {
     detail: { recording: false },

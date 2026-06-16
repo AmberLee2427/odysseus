@@ -235,7 +235,7 @@ import { createStreamRenderer } from './streamingRenderer.js';
 
     if (state === 'streaming') {
       // Clear any pending transitions from + → arrow swap
-      submitBtn.classList.remove('anim-spin', 'anim-spin-swap', 'anim-land', 'mic-mode', 'newchat-mode', 'newchat-expanded', 'recording');
+      submitBtn.classList.remove('anim-spin', 'anim-spin-swap', 'anim-land', 'newchat-mode', 'newchat-expanded');
       // Ensure arrow icon is showing before launch
       var icons = window._odysseusBtnIcons;
       if (icons) submitBtn.innerHTML = icons.send;
@@ -261,7 +261,6 @@ import { createStreamRenderer } from './streamingRenderer.js';
     } else if (state === 'idle') {
       submitBtn.dataset.mode = '';
       delete submitBtn.dataset.phase;
-      submitBtn.classList.remove('recording');
       isStreaming = false;
       _stopStallWatchdog();
       // Defer to global updater which handles mic/newchat/send modes
@@ -271,7 +270,7 @@ import { createStreamRenderer } from './streamingRenderer.js';
         var icons = window._odysseusBtnIcons;
         submitBtn.innerHTML = icons ? icons.send : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
         submitBtn.title = 'Send message';
-        submitBtn.classList.remove('mic-mode', 'newchat-mode');
+        submitBtn.classList.remove('newchat-mode');
       }
     }
   }
@@ -3404,6 +3403,8 @@ import { createStreamRenderer } from './streamingRenderer.js';
 
     const box = document.getElementById('chat-history');
     if (!box) return false;
+    const submitBtn = document.querySelector('.send-btn');
+    updateSubmitButton('streaming', submitBtn);
 
     // Block duplicate re-attach attempts while this reader is live. A dedicated
     // set (not _backgroundStreams) so checkBackgroundStream doesn't mistake this
@@ -3442,6 +3443,10 @@ import { createStreamRenderer } from './streamingRenderer.js';
     const cleanup = () => {
       try { spinner.destroy(); } catch (_) {}
       _resumingStreams.delete(sessionId);
+      if (sessionModule.getCurrentSessionId &&
+          sessionModule.getCurrentSessionId() === sessionId) {
+        updateSubmitButton('idle', submitBtn);
+      }
     };
 
     const renderDelta = () => {

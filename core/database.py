@@ -547,6 +547,7 @@ class ScheduledTask(TimestampMixin, Base):
     model          = Column(String, nullable=True)
     endpoint_url   = Column(String, nullable=True)
     run_count      = Column(Integer, default=0)
+    metadata        = Column(JSON, nullable=True)
 
     cron_expression = Column(String, nullable=True)           # cron string e.g. "*/5 * * * *"
     then_task_id   = Column(String, ForeignKey("scheduled_tasks.id", ondelete="SET NULL"), nullable=True)
@@ -649,6 +650,7 @@ class Memory(Base):
 
     # Timestamp as Unix timestamp
     timestamp = Column(Integer, default=lambda: int(utcnow_naive().timestamp()))
+    metadata = Column(JSON, nullable=True)
 
     # Relationship to Session
     session = relationship("Session", backref="memories")
@@ -1596,6 +1598,7 @@ def init_db():
     _migrate_add_pinned_models_column()
     _migrate_add_notes_sort_order()
     _migrate_add_model_type_column()
+    _migrate_add_metadata_columns()
     _migrate_add_model_endpoint_refresh_columns()
     _migrate_add_model_endpoint_owner_column()
     _migrate_add_supports_tools_column()
@@ -1841,6 +1844,36 @@ def _migrate_encrypt_email_passwords():
                 logger.info(f"Encrypted plaintext passwords on {migrated} email account row(s)")
     except Exception as e:
         logger.warning(f"Password migration failed (will retry next start): {e}")
+
+
+def _migrate_add_metadata_columns():
+    """Add JSON 'metadata' columns to ScheduledTask and Memory. Idempotent."""
+    import sqlite3
+    import os
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    if not os.path.exists(db_path):
+        return
+    try:
+        conn = sqlite3.connect(db_path)
+        
+        # 1. ScheduledTask metadata
+        cursor = conn.execute("PRAGMA table_info(scheduled_tasks)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "metadata" not in columns:
+            conn.execute("ALTER TABLE scheduled_tasks ADD COLUMN metadata JSON")
+            logging.getLogger(__name__).info("Migrated: added 'metadata' column to scheduled_tasks")
+            
+        # 2. Memory metadata
+        cursor = conn.execute("PRAGMA table_info(memories)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "metadata" not in columns:
+            conn.execute("ALTER TABLE memories ADD COLUMN metadata JSON")
+            logging.getLogger(__name__).info("Migrated: added 'metadata' column to memories")
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"metadata column migration failed: {e}")
 
 
 def _migrate_add_calendar_is_utc():

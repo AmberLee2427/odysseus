@@ -111,6 +111,10 @@ DEFAULT_SETTINGS = {
     # `compute_input_token_budget` in src/context_budget.py.
     "agent_input_token_hard_max": 200_000,
     "agent_stream_timeout_seconds": 300,
+    # Interrupt a generation that repeats the same substantial phrase/intent
+    # this many times within a short rolling window, then privately steer it.
+    "agent_stream_repeat_line_threshold": 4,
+    "agent_stream_repeat_guard_max": 2,
     # Extra directory roots that read_file / write_file may access, in
     # addition to the built-in project data/ and system temp dirs. Each
     # entry is an absolute path. Sensitive subpaths (.ssh, .gnupg, shell

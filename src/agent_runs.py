@@ -199,3 +199,11 @@ def stop(session_id: str) -> bool:
         run.task.cancel()
         return True
     return False
+
+
+def active_session_ids() -> list[str]:
+    """Return session ids with currently running detached runs."""
+    return [
+        sid for sid, run in list(_RUNS.items())
+        if run and run.status == "running" and run.task and not run.task.done()
+    ]

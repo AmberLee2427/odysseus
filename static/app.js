@@ -3695,8 +3695,9 @@ function startOdysseusApp() {
 
   chatForm.onsubmit = handleSubmit;
 
-  // ── Dual-purpose send/mic button ──
+  // ── Send/generation button + adjacent speech button ──
   const sendBtn = document.querySelector('.send-btn');
+  const speechBtn = document.getElementById('speech-action-btn');
   const messageInput = el('message');
   const modelPickerWrap = document.getElementById('model-picker-wrap');
 
@@ -3705,8 +3706,11 @@ function startOdysseusApp() {
   const _stopIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
   const _newChatIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 
-  // Expose icons globally so chat.js updateSubmitButton can use them
-  window._odysseusBtnIcons = { send: _sendIcon, mic: _micIcon, stop: _stopIcon, newChat: _newChatIcon };
+  const _speakerStopIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M11 5 6 9H2v6h4l5 4V5z"/><rect x="16" y="7" width="5" height="10" rx="1"/></svg>';
+
+  // Expose icons globally so chat.js updateSubmitButton can use them.
+  // Send owns send/new-chat/stop-generation. Speech owns STT/TTS.
+  window._odysseusBtnIcons = { send: _sendIcon, stop: _stopIcon, newChat: _newChatIcon };
 
   function _isSttEnabled() {
     return voiceRecorderModule._sttProvider && voiceRecorderModule._sttProvider !== 'disabled';
@@ -3716,29 +3720,60 @@ function startOdysseusApp() {
     return fileHandlerModule.getPendingCount && fileHandlerModule.getPendingCount() > 0;
   }
 
+  function _isTtsActive() {
+    const mgr = window.aiTTSManager;
+    return !!(mgr && (mgr.isPlaying || mgr._processing || mgr._streamActive));
+  }
+
+  function _updateSpeechBtnIcon() {
+    if (!speechBtn) return;
+    const ttsActive = _isTtsActive();
+    const recording = !!(voiceRecorderModule.getIsRecording && voiceRecorderModule.getIsRecording());
+    const sttEnabled = _isSttEnabled();
+
+    speechBtn.classList.toggle('voice-active', ttsActive && !recording);
+    speechBtn.classList.toggle('recording', recording);
+
+    if (recording) {
+      speechBtn.hidden = false;
+      speechBtn.innerHTML = _stopIcon;
+      speechBtn.title = 'Stop recording';
+      speechBtn.setAttribute('aria-label', 'Stop recording');
+      speechBtn.dataset.mode = 'recording';
+    } else if (ttsActive) {
+      speechBtn.hidden = false;
+      speechBtn.innerHTML = _speakerStopIcon;
+      speechBtn.title = 'Stop voice';
+      speechBtn.setAttribute('aria-label', 'Stop voice');
+      speechBtn.dataset.mode = 'stop-voice';
+    } else if (sttEnabled) {
+      speechBtn.hidden = false;
+      speechBtn.innerHTML = _micIcon;
+      speechBtn.title = 'Record voice';
+      speechBtn.setAttribute('aria-label', 'Record voice');
+      speechBtn.dataset.mode = 'mic';
+    } else {
+      speechBtn.hidden = true;
+      speechBtn.dataset.mode = '';
+    }
+  }
+
   function _updateSendBtnIcon() {
     if (!sendBtn) return;
-    // Don't override if streaming (stop button) or recording
-    if (sendBtn.dataset.mode === 'streaming' || sendBtn.dataset.mode === 'recording') return;
+    // Don't override if streaming (stop button)
+    if (sendBtn.dataset.mode === 'streaming') return;
     const prevMode = sendBtn.dataset.mode || '';
     const hasText = messageInput && messageInput.value.trim().length > 0;
     const hasFiles = _hasAttachments();
     let newMode;
-    if (!hasText && !hasFiles && _isSttEnabled()) {
-      clearTimeout(sendBtn._collapseTimer);
-      sendBtn.innerHTML = _micIcon;
-      sendBtn.title = 'Record voice';
-      newMode = 'mic';
-      sendBtn.classList.add('mic-mode');
-      sendBtn.classList.remove('newchat-mode', 'newchat-expanded');
-    } else if (!hasText && !hasFiles && !_isSttEnabled()) {
+    if (!hasText && !hasFiles) {
       clearTimeout(sendBtn._collapseTimer);
       // Group chat: always show send button, never newchat mode
       if (groupModule && groupModule.isActive()) {
         sendBtn.innerHTML = _sendIcon;
         sendBtn.title = 'Send to group';
         newMode = 'idle';
-        sendBtn.classList.remove('mic-mode', 'newchat-mode', 'newchat-expanded');
+        sendBtn.classList.remove('newchat-mode', 'newchat-expanded');
       } else {
       // Check if we're already on a fresh empty session (welcome screen visible)
       const isEmptySession = document.getElementById('chat-container')?.classList.contains('welcome-active');
@@ -3748,14 +3783,13 @@ function startOdysseusApp() {
         sendBtn.title = 'Send message';
         newMode = 'idle';
         sendBtn.classList.add('newchat-mode'); // muted gray style
-        sendBtn.classList.remove('mic-mode', 'newchat-expanded');
+        sendBtn.classList.remove('newchat-expanded');
         clearTimeout(sendBtn._expandTimer);
       } else {
         sendBtn.innerHTML = _newChatIcon + '<span class="send-btn-label">+ New</span>';
         sendBtn.title = 'New chat';
         newMode = 'newchat';
         sendBtn.classList.add('newchat-mode');
-        sendBtn.classList.remove('mic-mode');
         // The button stays a 32px compact icon (no auto-expand to label —
         // the "+ New" label inside is for screen readers only; sighted users
         // see the spinning + on hover + the title tooltip).
@@ -3767,7 +3801,7 @@ function startOdysseusApp() {
       newMode = 'send';
       clearTimeout(sendBtn._expandTimer);
       const wasExpanded = sendBtn.classList.contains('newchat-expanded');
-      const wasNewchat = prevMode === 'newchat' || prevMode === 'mic';
+      const wasNewchat = prevMode === 'newchat';
       if (wasExpanded || wasNewchat) {
         // Collapse pill if expanded, then spin arrow in (same as + spin-in)
         if (wasExpanded) sendBtn.classList.remove('newchat-expanded');
@@ -3776,23 +3810,23 @@ function startOdysseusApp() {
           if (sendBtn.dataset.mode !== 'send') return;
           sendBtn.innerHTML = _sendIcon;
           sendBtn.title = 'Send message';
-          sendBtn.classList.remove('mic-mode', 'newchat-mode', 'anim-spin-swap');
+          sendBtn.classList.remove('newchat-mode', 'anim-spin-swap');
           sendBtn.classList.add('anim-spin');
           sendBtn.addEventListener('animationend', () => sendBtn.classList.remove('anim-spin'), { once: true });
         }, delay);
       } else {
         sendBtn.innerHTML = _sendIcon;
         sendBtn.title = 'Send message';
-        sendBtn.classList.remove('mic-mode', 'newchat-mode', 'newchat-expanded', 'anim-spin', 'anim-launch', 'anim-land');
+        sendBtn.classList.remove('newchat-mode', 'newchat-expanded', 'anim-spin', 'anim-launch', 'anim-land');
       }
     }
-    // Animate icon spin — when switching TO newchat or mic (the + or mic
+    // Animate icon spin — when switching TO newchat (the + appearing).
     // appearing). The previous `prevMode && ...` guard skipped this after
     // streaming ended (dataset.mode is reset to '' there, an empty falsy
     // string), which let the lingering anim-land class from the stop icon's
     // entry replay on the +, making it look like the + comes from below.
     // Never animate into send mode (arrow) — it should just appear instantly.
-    if (newMode !== prevMode && (newMode === 'newchat' || newMode === 'mic')) {
+    if (newMode !== prevMode && newMode === 'newchat') {
       if (!sendBtn.classList.contains('anim-spin')) {
         sendBtn.classList.remove('anim-launch', 'anim-land');
         sendBtn.classList.add('anim-spin');
@@ -3806,16 +3840,10 @@ function startOdysseusApp() {
     sendBtn.addEventListener('click', (e) => {
       e.preventDefault();
 
-      // If recording, stop recording
-      if (sendBtn.dataset.mode === 'recording' || voiceRecorderModule.getIsRecording()) {
-        voiceRecorderModule.stopRecording();
-        return;
-      }
-
       const hasText = messageInput && messageInput.value.trim().length > 0;
       const hasFiles = _hasAttachments();
 
-      // New chat mode — empty input, no attachments, no STT
+      // New chat mode — empty input, no attachments
       if (!hasText && !hasFiles && sendBtn.dataset.mode === 'newchat') {
         if (sessionModule) {
           const sessions = sessionModule.getSessions();
@@ -3832,24 +3860,83 @@ function startOdysseusApp() {
         return;
       }
 
-      // If input is empty and STT is enabled, start recording
-      if (!hasText && !hasFiles && _isSttEnabled()) {
-        sendBtn.innerHTML = _stopIcon;
-        sendBtn.title = 'Stop recording';
-        sendBtn.dataset.mode = 'recording';
-        sendBtn.classList.add('recording');
-        voiceRecorderModule.startRecording(
-          (audioFile) => fileHandlerModule.addFiles([audioFile]),
-          uiModule.showToast,
-          uiModule.showError
-        );
-        return;
-      }
-
       // Otherwise, send message
       handleSubmit(e);
     });
   }
+
+  if (speechBtn) {
+    speechBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (voiceRecorderModule.getIsRecording && voiceRecorderModule.getIsRecording()) {
+        voiceRecorderModule.stopRecording();
+        _updateSpeechBtnIcon();
+        return;
+      }
+      if (_isTtsActive()) {
+        try { window.aiTTSManager?.stop?.(); } catch (_) {}
+        try { window.speechSynthesis?.cancel?.(); } catch (_) {}
+        _updateSpeechBtnIcon();
+        return;
+      }
+      if (!_isSttEnabled()) return;
+      speechBtn.innerHTML = _stopIcon;
+      speechBtn.title = 'Stop recording';
+      speechBtn.setAttribute('aria-label', 'Stop recording');
+      speechBtn.dataset.mode = 'recording';
+      speechBtn.classList.add('recording');
+      voiceRecorderModule.startRecording(
+        (audioFile) => fileHandlerModule.addFiles([audioFile]),
+        uiModule.showToast,
+        uiModule.showError
+      );
+    });
+  }
+
+  async function emergencyStopAll() {
+    try { window.aiTTSManager?.stop?.(); } catch (_) {}
+    try { window.speechSynthesis?.cancel?.(); } catch (_) {}
+    try {
+      document.querySelectorAll('audio').forEach((audio) => {
+        try { audio.pause(); audio.currentTime = 0; } catch (_) {}
+      });
+    } catch (_) {}
+    try {
+      if (voiceRecorderModule.getIsRecording && voiceRecorderModule.getIsRecording()) {
+        voiceRecorderModule.stopRecording();
+      }
+    } catch (_) {}
+    try {
+      // Use the original Stop-button path. While chat.js is streaming,
+      // handleChatSubmit() performs its existing cleanup and calls
+      // abortCurrentRequest(true), which posts /api/chat/stop/{session}.
+      await chatModule.handleChatSubmit?.({ preventDefault() {} });
+    } catch (_) {}
+    uiModule.showToast?.('Stopped generation and speech', 2200);
+  }
+  window.odysseusEmergencyStopAll = emergencyStopAll;
+
+  document.addEventListener('click', async (e) => {
+    const stopItem = e.target.closest && e.target.closest('#export-stop-all-btn');
+    if (!stopItem) return;
+    e.preventDefault();
+    e.stopPropagation();
+    exportMenu?.classList.remove('open');
+    await emergencyStopAll();
+  }, true);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const mgr = window.aiTTSManager;
+    const submitBtn = document.querySelector('.send-btn');
+    const needsStop = !!(
+      (mgr && (mgr.isPlaying || mgr._processing || mgr._streamActive)) ||
+      (submitBtn && submitBtn.dataset.mode === 'streaming')
+    );
+    if (!needsStop) return;
+    e.preventDefault();
+    emergencyStopAll();
+  }, true);
 
   // Enter to send (shift+enter for newline), or new chat when empty
   if (messageInput) {
@@ -3870,7 +3957,7 @@ function startOdysseusApp() {
     });
   }
 
-  // Toggle mic/send icon on input change + hide model picker after enough text
+  // Toggle send/new-chat state on input change + hide model picker after enough text
   if (messageInput) {
     const _debouncedUpdateIcon = uiModule.debounce(_updateSendBtnIcon, 50);
     const _MODEL_PICKER_HIDE_CHARS = 10;
@@ -3885,6 +3972,7 @@ function startOdysseusApp() {
     messageInput.addEventListener('input', () => {
       _syncModelPickerAutohide();
       _debouncedUpdateIcon();
+      _updateSpeechBtnIcon();
     }, { passive: true });
   }
 
@@ -3898,11 +3986,18 @@ function startOdysseusApp() {
     }, { passive: true });
   }
 
-  // Expose globally so voiceRecorder can trigger update after async fetch
+  window.addEventListener('odysseus:recording-state', _updateSpeechBtnIcon);
+  window.addEventListener('odysseus:tts-started', _updateSpeechBtnIcon);
+  window.addEventListener('odysseus:tts-stopped', _updateSpeechBtnIcon);
+  window.addEventListener('odysseus:speech-settings-changed', _updateSpeechBtnIcon);
+
+  // Expose globally so voiceRecorder can trigger updates after async fetch.
   window._updateSendBtnIcon = _updateSendBtnIcon;
+  window._updateSpeechBtnIcon = _updateSpeechBtnIcon;
 
   // Initial icon state
   _updateSendBtnIcon();
+  _updateSpeechBtnIcon();
 
   // Auto-focus input on load
   if (messageInput) {

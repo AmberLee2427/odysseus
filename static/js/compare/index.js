@@ -509,13 +509,13 @@ function _setSendBtn(mode) {
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     btn.title = 'Stop all models';
     btn.dataset.mode = 'streaming';
-    btn.classList.remove('mic-mode', 'newchat-mode');
+    btn.classList.remove('newchat-mode');
   } else {
     btn.dataset.mode = '';
     btn.innerHTML = SEND_SVG;
     btn.style.color = '';
     btn.title = 'Send to all models';
-    btn.classList.remove('mic-mode', 'newchat-mode', 'newchat-expanded');
+    btn.classList.remove('newchat-mode', 'newchat-expanded');
   }
 }
 

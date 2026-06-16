@@ -220,7 +220,11 @@ Fetch and read the text content of a SPECIFIC URL the user names (e.g. "check ex
 ```read_file
 <file path>
 ```
-Read a file and return its contents.""",
+Read a file and return its contents. For large files, use JSON:
+```read_file
+{"path": "<file path>", "offset": 120, "limit": 80}
+```
+`offset` is a 1-based LINE NUMBER and `limit` is a number of LINES. They are not byte counts.""",
 
     "write_file": """\
 ```write_file
@@ -501,6 +505,74 @@ _ADMIN_SCHEMA_NAMES = frozenset([
 _TOOL_SELECTION_TIMEOUT_SECONDS = 1.5
 
 
+class _StreamingRepeatGuard:
+    """Detect repeated prose patterns in a rolling window while streaming."""
+
+    def __init__(self, threshold: int = 4) -> None:
+        self.threshold = max(3, threshold)
+        self.window_size = self.threshold * 4
+        self._buffer = ""
+        self._in_fence = False
+        self._recent = collections.deque()
+        self._counts: collections.Counter = collections.Counter()
+        self._examples = {}
+
+    def feed(self, delta: str):
+        """Return ``(pattern, count)`` when nearby prose repeats too often."""
+        self._buffer += delta or ""
+        parts = self._buffer.splitlines(keepends=True)
+        self._buffer = ""
+        if parts and not parts[-1].endswith(("\n", "\r")):
+            self._buffer = parts.pop()
+
+        for raw in parts:
+            line = raw.strip()
+            if line.startswith("```"):
+                self._in_fence = not self._in_fence
+                continue
+            if self._in_fence:
+                continue
+
+            normalized = re.sub(r"\s+", " ", line).strip()
+            # Avoid false positives from formatting, tiny headings/bullets,
+            # separators, and legitimate repeated table rows.
+            if (
+                len(normalized) < 24
+                or len(re.findall(r"[A-Za-z]", normalized)) < 10
+                or normalized.startswith(("#", "---", "==="))
+                or (normalized.startswith("|") and normalized.endswith("|"))
+            ):
+                continue
+
+            # Models in a hesitation loop often alternate cosmetic lead-ins:
+            # "Wait, I'll use write_file", "Actually, I'll use write_file",
+            # "Okay, I'm writing it". Strip those prefixes so the repeated
+            # intent is recognized without requiring byte-identical lines.
+            pattern = normalized.casefold()
+            pattern = re.sub(
+                r"^(?:(?:wait|actually|okay|ok|all right|here goes|"
+                r"one more thing|no,? i'm good)[\s.!,:;-]+)+",
+                "",
+                pattern,
+            ).strip()
+            if not pattern:
+                continue
+
+            self._recent.append(pattern)
+            self._counts[pattern] += 1
+            self._examples.setdefault(pattern, normalized)
+            if len(self._recent) > self.window_size:
+                old = self._recent.popleft()
+                self._counts[old] -= 1
+                if self._counts[old] <= 0:
+                    del self._counts[old]
+                    self._examples.pop(old, None)
+
+            if self._counts[pattern] >= self.threshold:
+                return self._examples[pattern], self._counts[pattern]
+        return None
+
+
 def _is_ollama_openai_compat_url(endpoint_url: str) -> bool:
     """Return True for local Ollama's OpenAI-compatible /v1 surface.
 
@@ -641,6 +713,7 @@ def _build_system_prompt(
         _, _skill_index_block = _build_base_prompt(
             disabled_tools, mcp_mgr, needs_admin, relevant_tools,
             mcp_disabled_map=mcp_disabled_map, compact=compact,
+            owner=owner,
             suppress_local_context=suppress_local_context,
         )
     else:
@@ -651,6 +724,7 @@ def _build_system_prompt(
             relevant_tools,
             mcp_disabled_map=mcp_disabled_map,
             compact=compact,
+            owner=owner,
             suppress_local_context=suppress_local_context,
         )
         if not active_document:
@@ -1024,6 +1098,7 @@ def _build_base_prompt(
     relevant_tools=None,
     mcp_disabled_map=None,
     compact: bool = False,
+    owner: Optional[str] = None,
     suppress_local_context: bool = False,
 ):
     """Build the agent prompt with only relevant tools included.
@@ -1077,7 +1152,7 @@ def _build_base_prompt(
             from src.constants import DATA_DIR
             _sm = SkillsManager(DATA_DIR)
             active_tools = list(set(TOOL_SECTIONS.keys()) - set(disabled or []))
-            skill_idx = _sm.index_for(owner=None, active_toolsets=active_tools)
+            skill_idx = _sm.index_for(owner=owner, active_toolsets=active_tools)
             if skill_idx:
                 lines = ["## Available skills",
                          "Procedures the assistant should consult before doing domain work. "
@@ -1807,6 +1882,17 @@ async def stream_agent_loop(
     # that *can't* call the tool from looping forever.
     _intent_nudge_count = 0
     _MAX_INTENT_NUDGES = 2
+    try:
+        _repeat_line_threshold = int(get_setting("agent_stream_repeat_line_threshold", 4) or 4)
+    except (TypeError, ValueError):
+        _repeat_line_threshold = 4
+    _repeat_line_threshold = max(3, min(_repeat_line_threshold, 20))
+    try:
+        _repeat_guard_max = int(get_setting("agent_stream_repeat_guard_max", 2) or 2)
+    except (TypeError, ValueError):
+        _repeat_guard_max = 2
+    _repeat_guard_max = max(0, min(_repeat_guard_max, 5))
+    _repeat_guard_count = 0
 
     # "I said I would, then didn't" detector. The pattern that breaks debug
     # loops on weak models (deepseek-v4-flash mid-2026): the model writes
@@ -1849,6 +1935,8 @@ async def stream_agent_loop(
         # fenced block closes we advance this so the next iteration can
         # detect a SUBSEQUENT block in the same round.
         _doc_scan_from = 0
+        _repeat_guard = _StreamingRepeatGuard(_repeat_line_threshold)
+        _repeat_guard_tripped = None
 
         # Merge native tool schemas with MCP tool schemas, filtering out
         # Only send function schemas for API models (OpenAI, Anthropic, etc.).
@@ -1901,7 +1989,7 @@ async def stream_agent_loop(
         # complementary cap for the rare stream that trickles bytes forever and
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
-        async for chunk in stream_llm_with_fallback(
+        _round_stream = stream_llm_with_fallback(
             _candidates,
             messages,
             temperature=temperature,
@@ -1909,7 +1997,8 @@ async def stream_agent_loop(
             prompt_type=prompt_type if round_num == 1 else None,
             tools=all_tool_schemas if all_tool_schemas else None,
             timeout=agent_stream_timeout,
-        ):
+        )
+        async for chunk in _round_stream:
             if time.time() > _round_deadline:
                 logger.warning(f"[agent] round {round_num} stream exceeded wall-clock deadline; cutting off")
                 break
@@ -2005,6 +2094,17 @@ async def stream_agent_loop(
                             round_response += data["delta"]
                             full_response += data["delta"]
                         yield chunk  # Stream all rounds
+                        if not data.get("thinking"):
+                            _repeat_guard_tripped = _repeat_guard.feed(data["delta"])
+                            if _repeat_guard_tripped:
+                                logger.warning(
+                                    "[agent] streaming repeat guard tripped on round %d "
+                                    "(%dx): %r",
+                                    round_num,
+                                    _repeat_guard_tripped[1],
+                                    _repeat_guard_tripped[0][:160],
+                                )
+                                break
                         # Detect text-fence doc streaming for rounds 2+
                         # (round 1 is handled by frontend fence detection + server fenced block path)
                         if (
@@ -2062,6 +2162,44 @@ async def stream_agent_loop(
                 # Forward error events to frontend as visible text
                 yield chunk
             # Intercept [DONE] — don't forward until all rounds finish
+
+        if _repeat_guard_tripped:
+            try:
+                await _round_stream.aclose()
+            except Exception as _close_err:
+                logger.debug("[agent] repeat guard stream close failed: %s", _close_err)
+            _repeat_guard_count += 1
+            cleaned_round = strip_tool_blocks(round_response).strip()
+            round_texts.append(cleaned_round)
+            if _repeat_guard_count > _repeat_guard_max:
+                _note = (
+                    "\n\n_Loop guard stopped repeated output after "
+                    f"{_repeat_guard_max} steering attempt"
+                    f"{'s' if _repeat_guard_max != 1 else ''}._"
+                )
+                full_response += _note
+                yield f'data: {json.dumps({"delta": _note})}\n\n'
+                break
+            if round_response.strip():
+                _partial_msg = {"role": "assistant", "content": round_response}
+                if round_reasoning:
+                    _partial_msg["reasoning_content"] = round_reasoning
+                messages.append(_partial_msg)
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Your previous response was interrupted because you repeated "
+                    f"the same phrase or intent {_repeat_guard_tripped[1]} times "
+                    "within a short span: "
+                    f"\"{_repeat_guard_tripped[0][:240]}\". Do not restart or repeat "
+                    "what you already wrote. Continue from the useful progress above, "
+                    "return directly to the user's task, and finish concisely. If you "
+                    "are blocked, state the blocker plainly instead of repeating."
+                ),
+            })
+            full_response += "\n\n"
+            yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
+            continue
 
         tool_blocks, used_native = _resolve_tool_blocks(round_response, native_tool_calls, round_num)
 
