@@ -1609,6 +1609,26 @@ body.bg-pattern-sparkles {
       text-align: center;
       transition: opacity 0.15s;
     }
+    .project-list-item {
+      width: 100%;
+      text-align: left;
+      font: inherit;
+    }
+    .project-sidebar-empty {
+      padding: 6px 10px 8px;
+      font-size: 10px;
+      line-height: 1.35;
+      color: color-mix(in srgb, var(--fg) 48%, transparent);
+    }
+    .project-session-folder .project-session-header {
+      color: color-mix(in srgb, var(--fg) 62%, transparent);
+    }
+    .project-session-folder .project-session-header:hover {
+      color: var(--fg);
+    }
+    .project-session-content .list-item {
+      padding-left: 14px;
+    }
     .session-show-more-btn:hover { opacity: 0.8; }
     .drag-folder-placeholder {
       height: 4px; margin: 2px 0; border-radius: 2px;

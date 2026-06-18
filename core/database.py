@@ -547,7 +547,7 @@ class ScheduledTask(TimestampMixin, Base):
     model          = Column(String, nullable=True)
     endpoint_url   = Column(String, nullable=True)
     run_count      = Column(Integer, default=0)
-    metadata        = Column(JSON, nullable=True)
+    meta_data       = Column("metadata", JSON, nullable=True)
 
     cron_expression = Column(String, nullable=True)           # cron string e.g. "*/5 * * * *"
     then_task_id   = Column(String, ForeignKey("scheduled_tasks.id", ondelete="SET NULL"), nullable=True)
@@ -602,6 +602,27 @@ class EditorDraft(TimestampMixin, Base):
     )
 
 
+class Project(TimestampMixin, Base):
+    """Durable project registry entry.
+
+    Projects are stable containers for future project-centered features.
+    ``project_id`` is the public identity; names and metadata are intentionally
+    mutable.
+    """
+    __tablename__ = "projects"
+
+    project_id  = Column(String, primary_key=True, index=True)
+    owner       = Column(String, nullable=True, index=True)
+    name        = Column(String, nullable=False)
+    description = Column(Text, nullable=True, default="")
+    root_path   = Column(Text, nullable=True)
+    archived_at = Column(DateTime, nullable=True, index=True)
+
+    __table_args__ = (
+        Index('ix_projects_owner_archived_updated', 'owner', 'archived_at', 'updated_at'),
+    )
+
+
 class TaskRun(Base):
     """Record of a single execution of a ScheduledTask."""
     __tablename__ = "task_runs"
@@ -650,7 +671,7 @@ class Memory(Base):
 
     # Timestamp as Unix timestamp
     timestamp = Column(Integer, default=lambda: int(utcnow_naive().timestamp()))
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Relationship to Session
     session = relationship("Session", backref="memories")

@@ -629,6 +629,12 @@ app.include_router(setup_signature_routes())
 from routes.gallery_routes import setup_gallery_routes
 app.include_router(setup_gallery_routes())
 
+# Project Registry (durable project-centered containers)
+from routes.project_routes import setup_project_routes
+app.include_router(setup_project_routes())
+from routes.project_worktree_routes import setup_project_worktree_routes
+app.include_router(setup_project_worktree_routes())
+
 # Persisted image-editor drafts (server-backed projects)
 from routes.editor_draft_routes import setup_editor_draft_routes
 app.include_router(setup_editor_draft_routes())

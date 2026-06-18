@@ -18,6 +18,7 @@ import { makeWindowDraggable } from './js/windowDrag.js';
 import markdownModule from './js/markdown.js';
 import chatRenderer from './js/chatRenderer.js';
 import sessionModule from './js/sessions.js';
+import projectModule from './js/projects.js';
 import memoryModule from './js/memory.js';
 import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
@@ -52,6 +53,7 @@ import { initSectionCollapse, initSectionDrag } from './js/section-management.js
 const API_BASE = window.location.origin;
 window.themeModule = themeModule;
 window.sessionModule = sessionModule;
+window.projectModule = projectModule;
 window.uiModule = uiModule;
 window.adminModule = adminModule;
 window.cookbookModule = cookbookModule;
@@ -4144,6 +4146,9 @@ function startOdysseusApp() {
 
   // Load initial data
   presetsModule.loadPresets(uiModule.showError);
+  if (projectModule && projectModule.initProjects) {
+    projectModule.initProjects();
+  }
 
   if (sessionModule) {
     sessionModule.initDependencies({
@@ -4156,8 +4161,10 @@ function startOdysseusApp() {
       scrollHistory: uiModule.scrollHistoryInstant
     });
 
-    // Load sessions first (critical path) — remove loader when done
-    sessionModule.loadSessions()
+    // Load projects before sessions so project-linked chats can nest on first paint.
+    Promise.resolve(projectModule?.listProjects?.({ silent: true }))
+      .catch(e => console.warn('loadProjects error:', e))
+      .then(() => sessionModule.loadSessions())
       .catch(e => console.warn('loadSessions error:', e))
       .finally(() => {
         const loader = document.getElementById('app-loader');

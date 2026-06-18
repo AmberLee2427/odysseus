@@ -9,6 +9,7 @@ import { providerLogo } from './providers.js';
 import { initModelPicker, updateModelPicker } from './modelPicker.js';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
+import projectModule from './projects.js';
 
 const API_BASE = window.location.origin;
 
@@ -782,6 +783,14 @@ function _renderSessionListImpl() {
 
   const _frag = document.createDocumentFragment();
 
+  const projectGroupsRendered = _renderProjectSessionGroups(orderedSessions, _frag);
+  if (projectGroupsRendered) {
+    list.innerHTML = '';
+    list.appendChild(_frag);
+    _postRenderSessionList(list);
+    return;
+  }
+
   // ── Flat sort modes: ignore folders, show one ordered list. ──
   // Folders are only shown when _sortMode === 'group' (or null/empty
   // for manual mode). This keeps the picker simple: a folder-grouped
@@ -1089,6 +1098,94 @@ function _renderSessionListImpl() {
   list.appendChild(_frag);
 
   _postRenderSessionList(list);
+}
+
+function _renderProjectSessionGroups(orderedSessions, frag) {
+  const projects = projectModule.getProjectsSnapshot ? projectModule.getProjectsSnapshot() : [];
+  if (!projects.length) return false;
+  const sessionsWithProject = orderedSessions.filter(s => s.project_id || s.projectId);
+  if (!sessionsWithProject.length) return false;
+
+  const projectMap = new Map(projects.map(project => [String(project.project_id || project.id), project]));
+  const grouped = new Map();
+  const unprojected = [];
+  orderedSessions.forEach(session => {
+    const pid = session.project_id || session.projectId;
+    if (pid && projectMap.has(String(pid))) {
+      const key = String(pid);
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(session);
+    } else {
+      unprojected.push(session);
+    }
+  });
+
+  const state = loadFolderState();
+  const appendGroup = (key, title, groupSessions, project = null) => {
+    if (!groupSessions.length && !project) return;
+    const collapsedKey = `project:${key}`;
+    const collapsed = state[collapsedKey] === false;
+    const folderDiv = document.createElement('div');
+    folderDiv.className = 'session-folder project-session-folder';
+    folderDiv.dataset.projectId = key;
+
+    const header = document.createElement('div');
+    header.className = 'session-folder-header project-session-header';
+    header.dataset.projectId = key;
+
+    const toggle = document.createElement('span');
+    toggle.className = 'folder-toggle';
+    toggle.textContent = collapsed ? '\u25B6' : '\u25BC';
+    header.appendChild(toggle);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'folder-name';
+    nameSpan.textContent = title;
+    header.appendChild(nameSpan);
+
+    const countSpan = document.createElement('span');
+    countSpan.className = 'folder-count';
+    countSpan.textContent = `(${groupSessions.length})`;
+    header.appendChild(countSpan);
+
+    header.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (event.altKey && project) {
+        projectModule.openProjectDashboard(key, { sessions });
+        return;
+      }
+      const next = loadFolderState();
+      next[collapsedKey] = next[collapsedKey] === false ? true : false;
+      saveFolderState(next);
+      renderSessionList();
+    });
+    header.addEventListener('dblclick', (event) => {
+      event.stopPropagation();
+      if (project) projectModule.openProjectDashboard(key, { sessions });
+    });
+
+    folderDiv.appendChild(header);
+    if (!collapsed) {
+      const content = document.createElement('div');
+      content.className = 'session-folder-content project-session-content';
+      groupSessions.forEach(session => content.appendChild(createSessionItem(session)));
+      if (!groupSessions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'project-sidebar-empty';
+        empty.textContent = 'No linked chats yet';
+        content.appendChild(empty);
+      }
+      folderDiv.appendChild(content);
+    }
+    frag.appendChild(folderDiv);
+  };
+
+  projects.forEach(project => {
+    const id = String(project.project_id || project.id);
+    appendGroup(id, project.name || 'Untitled project', grouped.get(id) || [], project);
+  });
+  if (unprojected.length) appendGroup('__unprojected__', 'Unprojected', unprojected, null);
+  return true;
 }
 
 /** Shared post-render: highlight, keyboard nav, swipe hint, drag sort */
@@ -1495,6 +1592,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     return; // deactivate does a page reload
   }
   try {
+    if (projectModule.clearProjectMode) projectModule.clearProjectMode();
     const navToken = ++_sessionNavToken;
     const prevSessionId = currentSessionId;
     // Re-archive peeked session when navigating away

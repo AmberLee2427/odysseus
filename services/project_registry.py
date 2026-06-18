@@ -1,0 +1,131 @@
+"""Backend service for the durable Project Registry."""
+
+import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy.orm import Session
+
+from core.database import Project, utcnow_naive
+
+
+class ProjectNotFoundError(LookupError):
+    """Raised when a project is missing or hidden from the caller."""
+
+
+def _clean_optional_text(value: Optional[str], *, max_len: int | None = None) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    if max_len is not None:
+        cleaned = cleaned[:max_len]
+    return cleaned
+
+
+def _clean_name(value: Optional[str]) -> str:
+    name = _clean_optional_text(value, max_len=200)
+    if not name:
+        raise ValueError("Project name is required")
+    return name
+
+
+def _can_access(project: Project, owner: Optional[str]) -> bool:
+    if owner is None:
+        return True
+    return project.owner == owner
+
+
+def project_to_dict(project: Project) -> Dict[str, Any]:
+    archived_at = project.archived_at.isoformat() if project.archived_at else None
+    return {
+        "project_id": project.project_id,
+        "id": project.project_id,
+        "name": project.name,
+        "description": project.description or "",
+        "root_path": project.root_path,
+        "created_at": project.created_at.isoformat() if project.created_at else None,
+        "updated_at": project.updated_at.isoformat() if project.updated_at else None,
+        "archived_at": archived_at,
+        "archived": archived_at is not None,
+    }
+
+
+class ProjectRegistry:
+    """Small owner-scoped CRUD service for durable projects."""
+
+    def __init__(self, db: Session, owner: Optional[str]):
+        self.db = db
+        self.owner = owner
+
+    def list_projects(self, *, include_archived: bool = False) -> List[Dict[str, Any]]:
+        query = self.db.query(Project)
+        if self.owner is not None:
+            query = query.filter(Project.owner == self.owner)
+        if not include_archived:
+            query = query.filter(Project.archived_at == None)  # noqa: E711
+        rows = query.order_by(Project.updated_at.desc(), Project.created_at.desc()).all()
+        return [project_to_dict(row) for row in rows]
+
+    def get_project(self, project_id: str, *, include_archived: bool = True) -> Dict[str, Any]:
+        project = self._get_row(project_id, include_archived=include_archived)
+        return project_to_dict(project)
+
+    def create_project(
+        self,
+        *,
+        name: str,
+        description: Optional[str] = None,
+        root_path: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        pid = _clean_optional_text(project_id, max_len=128) or str(uuid.uuid4())
+        if self.db.query(Project).filter(Project.project_id == pid).first():
+            raise ValueError("Project id already exists")
+        project = Project(
+            project_id=pid,
+            owner=self.owner,
+            name=_clean_name(name),
+            description=_clean_optional_text(description) or "",
+            root_path=_clean_optional_text(root_path),
+        )
+        self.db.add(project)
+        self.db.commit()
+        self.db.refresh(project)
+        return project_to_dict(project)
+
+    def update_project(
+        self,
+        project_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        root_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        project = self._get_row(project_id)
+        if name is not None:
+            project.name = _clean_name(name)
+        if description is not None:
+            project.description = _clean_optional_text(description) or ""
+        if root_path is not None:
+            project.root_path = _clean_optional_text(root_path)
+        self.db.commit()
+        self.db.refresh(project)
+        return project_to_dict(project)
+
+    def archive_project(self, project_id: str) -> Dict[str, Any]:
+        project = self._get_row(project_id)
+        if project.archived_at is None:
+            project.archived_at = utcnow_naive()
+            self.db.commit()
+            self.db.refresh(project)
+        return project_to_dict(project)
+
+    def _get_row(self, project_id: str, *, include_archived: bool = True) -> Project:
+        project = self.db.query(Project).filter(Project.project_id == project_id).first()
+        if not project or not _can_access(project, self.owner):
+            raise ProjectNotFoundError(project_id)
+        if not include_archived and project.archived_at is not None:
+            raise ProjectNotFoundError(project_id)
+        return project
