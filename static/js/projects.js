@@ -7,6 +7,7 @@ const API_BASE = window.location.origin;
 
 let projects = [];
 let selectedProjectId = null;
+let projectsInitialized = false;
 
 function _projectId(project) {
   return project && String(project.project_id || project.id || '');
@@ -91,6 +92,31 @@ export async function updateProject(projectId, payload) {
   return project ? { ...project, project_id: _projectId(project) } : null;
 }
 
+export async function listProjectWorktrees(projectId) {
+  const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/worktrees`, { credentials: 'same-origin' });
+  return _jsonOrThrow(res);
+}
+
+export async function createProjectWorktree(projectId, payload) {
+  const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/worktrees`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return _jsonOrThrow(res);
+}
+
+export async function removeProjectWorktree(projectId, path) {
+  const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/worktrees`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  return _jsonOrThrow(res);
+}
+
 export function getProjectsSnapshot() {
   return projects.slice();
 }
@@ -131,15 +157,19 @@ export function renderProjectSidebar({ error = '' } = {}) {
   const frag = document.createDocumentFragment();
   projects.forEach(project => {
     const id = _projectId(project);
-    const row = document.createElement('button');
-    row.type = 'button';
+    // Match Chats exactly: a sidebar list row is a div, not a button. Global
+    // button styling is intentionally colorful in some themes, which made
+    // project rows look like top-level controls instead of nested entries.
+    const row = document.createElement('div');
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '-1');
     row.className = 'list-item project-list-item';
     row.dataset.projectId = id;
     if (selectedProjectId === id) row.classList.add('active');
     row.title = _safeText(project.root_path || project.rootPath || project.name, 'Open project');
-    row.innerHTML = '<svg class="sidebar-action-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="grow"></span>';
+    row.innerHTML = '<span class="session-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></span><span class="grow"></span>';
     row.querySelector('.grow').textContent = _safeText(project.name, 'Untitled project');
-    row.addEventListener('click', async () => {
+    const open = async () => {
       await openProjectDashboard(id);
       const sidebar = document.getElementById('sidebar');
       const backdrop = document.getElementById('sidebar-backdrop');
@@ -148,6 +178,12 @@ export function renderProjectSidebar({ error = '' } = {}) {
         if (backdrop) backdrop.classList.remove('visible');
         if (window.syncRailSide) window.syncRailSide();
       }
+    };
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
     });
     frag.appendChild(row);
   });
@@ -172,6 +208,120 @@ function _appendReadout(parent, label, value) {
   val.textContent = _safeText(value, 'Not set');
   row.append(key, val);
   parent.appendChild(row);
+}
+
+function _worktreeLabel(worktree) {
+  const bits = [worktree.branch || (worktree.detached ? 'detached' : 'worktree')];
+  if (worktree.path) bits.push(worktree.path);
+  return bits.join(' - ');
+}
+
+function _renderWorktreeRows(list, projectId, rootPath, worktrees, refresh) {
+  list.innerHTML = '';
+  if (!worktrees.length) {
+    const empty = document.createElement('div');
+    empty.className = 'project-card-empty';
+    empty.textContent = 'No extra worktrees attached yet.';
+    list.appendChild(empty);
+    return;
+  }
+  worktrees.forEach(worktree => {
+    const row = document.createElement('div');
+    row.className = 'project-worktree-row';
+    const label = document.createElement('span');
+    label.textContent = _worktreeLabel(worktree);
+    row.appendChild(label);
+    if (worktree.path && worktree.path !== rootPath) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'project-secondary-btn';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', async () => {
+        remove.disabled = true;
+        try {
+          await removeProjectWorktree(projectId, worktree.path);
+          uiModule.showToast('Worktree removed');
+          await refresh();
+        } catch (error) {
+          uiModule.showError(`Failed to remove worktree: ${error.message}`);
+        } finally {
+          remove.disabled = false;
+        }
+      });
+      row.appendChild(remove);
+    }
+    list.appendChild(row);
+  });
+}
+
+function _renderBranchOptions(select, branches) {
+  select.innerHTML = '<option value="">Default branch/HEAD</option>';
+  branches.forEach(branch => {
+    const opt = document.createElement('option');
+    opt.value = branch;
+    opt.textContent = branch;
+    select.appendChild(opt);
+  });
+}
+
+function _mountWorktreePanel(card, projectId) {
+  card.innerHTML = `
+    <h3>Worktrees</h3>
+    <p class="project-card-meta">Loading Git worktrees...</p>
+    <div class="project-worktree-list"></div>
+    <form class="project-form project-worktree-form">
+      <label>Path<input name="path" autocomplete="off" placeholder="../my-project-feature" required></label>
+      <label>Existing branch<select name="branch"></select></label>
+      <label>Or new branch<input name="new_branch" autocomplete="off" placeholder="feature/my-run"></label>
+      <div class="project-form-actions">
+        <button type="submit" class="project-primary-btn">Create worktree</button>
+      </div>
+    </form>
+  `;
+  const meta = card.querySelector('.project-card-meta');
+  const list = card.querySelector('.project-worktree-list');
+  const form = card.querySelector('.project-worktree-form');
+  const branchSelect = form.elements.branch;
+
+  const refresh = async () => {
+    try {
+      const data = await listProjectWorktrees(projectId);
+      const worktrees = Array.isArray(data?.worktrees) ? data.worktrees : [];
+      const branches = Array.isArray(data?.branches) ? data.branches : [];
+      const rootPath = data?.root_path || '';
+      meta.textContent = rootPath ? `Root: ${rootPath}` : 'Git worktrees attached to this project.';
+      _renderBranchOptions(branchSelect, branches);
+      _renderWorktreeRows(list, projectId, rootPath, worktrees, refresh);
+    } catch (error) {
+      meta.textContent = error.message;
+      list.innerHTML = '';
+    }
+  };
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = {
+      path: form.elements.path.value.trim(),
+      branch: form.elements.branch.value.trim() || null,
+      new_branch: form.elements.new_branch.value.trim() || null,
+    };
+    if (!payload.path) return;
+    if (payload.new_branch) payload.branch = payload.branch || null;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await createProjectWorktree(projectId, payload);
+      form.reset();
+      uiModule.showToast('Worktree created');
+      await refresh();
+    } catch (error) {
+      uiModule.showError(`Failed to create worktree: ${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  refresh();
 }
 
 function _makeProjectForm(project, onSave) {
@@ -278,7 +428,7 @@ export function renderProjectDashboard(project, sessions = []) {
       </article>
       <article class="project-card">
         <h3>Worktrees</h3>
-        <p>Worktree status will appear here when the project registry grows that surface.</p>
+        <p>Loading Git worktrees...</p>
       </article>
     </div>
     <div class="project-edit-panel hidden"></div>
@@ -310,6 +460,8 @@ export function renderProjectDashboard(project, sessions = []) {
     links.appendChild(empty);
   }
 
+  _mountWorktreePanel(shell.querySelector('.project-grid .project-card:nth-child(2)'), id);
+
   const editPanel = shell.querySelector('.project-edit-panel');
   editPanel.appendChild(_makeProjectForm(project, async (payload) => {
     const updated = await updateProject(id, payload);
@@ -336,6 +488,11 @@ function _setProjectMode(active) {
 }
 
 export function initProjects() {
+  // projects.js is also an independent module entry in index.html. Keep this
+  // idempotent: an older cached app.js may not call this at all, while a fresh
+  // app.js imports and calls it during normal startup.
+  if (projectsInitialized) return;
+  projectsInitialized = true;
   document.getElementById('project-new-btn')?.addEventListener('click', (event) => {
     event.stopPropagation();
     showNewProjectDashboard();
@@ -353,12 +510,28 @@ export function initProjects() {
   renderProjectSidebar();
 }
 
+function _bootstrapProjects() {
+  initProjects();
+  // Do not rely on app.js for the first registry fetch. This makes the Project
+  // sidebar resilient to a stale app shell during a service-worker rollout.
+  listProjects({ silent: true }).catch(error => console.warn('loadProjects error:', error));
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bootstrapProjects, { once: true });
+} else {
+  _bootstrapProjects();
+}
+
 export default {
   initProjects,
   listProjects,
   getProject,
   createProject,
   updateProject,
+  listProjectWorktrees,
+  createProjectWorktree,
+  removeProjectWorktree,
   getProjectsSnapshot,
   getSelectedProjectId,
   getProjectForSession,

@@ -9,7 +9,7 @@ import { providerLogo } from './providers.js';
 import { initModelPicker, updateModelPicker } from './modelPicker.js';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
-import projectModule from './projects.js';
+import projectModule from './projects.js?v=6';
 
 const API_BASE = window.location.origin;
 
@@ -266,6 +266,44 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
   return moveItem;
 }
 
+function openSessionMetadataDialog(session, dropdown) {
+  dropdown.style.display = 'none';
+  const projects = projectModule.getProjectsSnapshot?.() || [];
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10050;display:grid;place-items:center;background:rgba(0,0,0,.45);padding:16px;';
+  const panel = document.createElement('form');
+  panel.style.cssText = 'width:min(420px,100%);display:grid;gap:12px;padding:18px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--fg);box-shadow:0 16px 48px rgba(0,0,0,.35);';
+  panel.innerHTML = `<strong>Add metadata</strong><label style="display:grid;gap:5px;font-size:12px">Project<select name="project" style="padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px"><option value="">No project</option>${projects.map(p => `<option value="${String(p.project_id).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${String(p.name).replace(/</g, '&lt;')}</option>`).join('')}</select></label><label style="display:grid;gap:5px;font-size:12px">Tags <input name="tags" value="${(session.tags || []).join(', ')}" placeholder="comma-separated" style="padding:8px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px"></label><div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" data-auto>Auto Fill</button><button type="button" data-cancel>Cancel</button><button type="submit">Save</button></div>`;
+  panel.elements.project.value = session.project_id || '';
+  const close = () => overlay.remove();
+  panel.querySelector('[data-cancel]').onclick = close;
+  panel.querySelector('[data-auto]').onclick = async () => {
+    const res = await fetch(`${API_BASE}/api/session/${session.id}/metadata/autofill`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) return uiModule.showError(data.detail || 'Auto Fill failed');
+    panel.elements.project.value = data.project_id || '';
+    panel.elements.tags.value = (data.tags || []).join(', ');
+    if (!data.matched) uiModule.showToast('No unambiguous project found; choose one manually');
+  };
+  panel.onsubmit = async event => {
+    event.preventDefault();
+    const fd = new FormData();
+    fd.append('project_id', panel.elements.project.value);
+    fd.append('tags', panel.elements.tags.value);
+    const res = await fetch(`${API_BASE}/api/session/${session.id}`, { method: 'PATCH', body: fd });
+    if (!res.ok) return uiModule.showError('Could not save chat metadata');
+    const data = await res.json();
+    session.project_id = data.project_id || null;
+    session.tags = data.tags || [];
+    close();
+    renderSessionList();
+  };
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  panel.elements.project.focus();
+}
+
 /** Create a single session list-item element. */
 function createSessionItem(s) {
   const div = document.createElement('div');
@@ -474,6 +512,15 @@ function createSessionItem(s) {
 
 
   dropdown.appendChild(renameItem);
+
+  const metadataItem = document.createElement('div');
+  metadataItem.className = 'dropdown-item-compact';
+  metadataItem.innerHTML = _icon('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>') + '<span>Add metadata</span>';
+  metadataItem.addEventListener('click', event => {
+    event.stopPropagation();
+    openSessionMetadataDialog(s, dropdown);
+  });
+  dropdown.appendChild(metadataItem);
 
   // Star/Unstar item
   if (!isOpenClaw) {

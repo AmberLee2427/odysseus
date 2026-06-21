@@ -1,7 +1,7 @@
 """Backend service for the durable Project Registry."""
 
+import json
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -11,6 +11,28 @@ from core.database import Project, utcnow_naive
 
 class ProjectNotFoundError(LookupError):
     """Raised when a project is missing or hidden from the caller."""
+
+
+STRUCTURAL_PROJECT_FIELDS = frozenset({
+    "project_id",
+    "id",
+    "owner",
+    "created_at",
+    "updated_at",
+    "archived",
+    "archived_at",
+})
+"""Fields that are app invariants, not freely editable Logseq mirror state."""
+
+MIRRORED_PROJECT_FIELDS = frozenset({
+    "name",
+    "description",
+    "root_path",
+    "tags",
+    "logseq_page_path",
+    "mirror",
+})
+"""Fields intended to be editable in the project page / Logseq mirror."""
 
 
 def _clean_optional_text(value: Optional[str], *, max_len: int | None = None) -> Optional[str]:
@@ -37,6 +59,52 @@ def _can_access(project: Project, owner: Optional[str]) -> bool:
     return project.owner == owner
 
 
+def _json_load(value: Optional[str], fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+def _clean_tags(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_tags = value.replace(",", " ").split()
+    elif isinstance(value, (list, tuple, set)):
+        raw_tags = list(value)
+    else:
+        raise ValueError("Project tags must be a list or string")
+    tags = []
+    seen = set()
+    for raw in raw_tags:
+        tag = str(raw).strip().lstrip("#")
+        if tag.startswith("[[") and tag.endswith("]]"):
+            tag = tag[2:-2].strip()
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key not in seen:
+            seen.add(key)
+            tags.append(tag[:120])
+    return tags
+
+
+def _clean_mirror(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("Project mirror must be a JSON object")
+    forbidden = sorted(STRUCTURAL_PROJECT_FIELDS.intersection(value.keys()))
+    if forbidden:
+        raise ValueError(
+            "Project mirror cannot overwrite structural fields: " + ", ".join(forbidden)
+        )
+    return value
+
+
 def project_to_dict(project: Project) -> Dict[str, Any]:
     archived_at = project.archived_at.isoformat() if project.archived_at else None
     return {
@@ -45,6 +113,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "name": project.name,
         "description": project.description or "",
         "root_path": project.root_path,
+        "tags": _json_load(project.tags_json, []),
+        "logseq_page_path": project.logseq_page_path,
+        "mirror": _json_load(project.mirror_json, {}),
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
         "archived_at": archived_at,
@@ -78,6 +149,9 @@ class ProjectRegistry:
         name: str,
         description: Optional[str] = None,
         root_path: Optional[str] = None,
+        tags: Any = None,
+        logseq_page_path: Optional[str] = None,
+        mirror: Optional[Dict[str, Any]] = None,
         project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         pid = _clean_optional_text(project_id, max_len=128) or str(uuid.uuid4())
@@ -89,6 +163,9 @@ class ProjectRegistry:
             name=_clean_name(name),
             description=_clean_optional_text(description) or "",
             root_path=_clean_optional_text(root_path),
+            tags_json=json.dumps(_clean_tags(tags)),
+            logseq_page_path=_clean_optional_text(logseq_page_path),
+            mirror_json=json.dumps(_clean_mirror(mirror)),
         )
         self.db.add(project)
         self.db.commit()
@@ -102,6 +179,9 @@ class ProjectRegistry:
         name: Optional[str] = None,
         description: Optional[str] = None,
         root_path: Optional[str] = None,
+        tags: Any = None,
+        logseq_page_path: Optional[str] = None,
+        mirror: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         project = self._get_row(project_id)
         if name is not None:
@@ -110,6 +190,12 @@ class ProjectRegistry:
             project.description = _clean_optional_text(description) or ""
         if root_path is not None:
             project.root_path = _clean_optional_text(root_path)
+        if tags is not None:
+            project.tags_json = json.dumps(_clean_tags(tags))
+        if logseq_page_path is not None:
+            project.logseq_page_path = _clean_optional_text(logseq_page_path)
+        if mirror is not None:
+            project.mirror_json = json.dumps(_clean_mirror(mirror))
         self.db.commit()
         self.db.refresh(project)
         return project_to_dict(project)

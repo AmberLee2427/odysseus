@@ -7,8 +7,14 @@ logger = logging.getLogger(__name__)
 
 class KnowledgeGraphService:
     """
-    Service to manage and query the Project-to-Entity map (the Project Manifest).
-    This provides the 'Tier 1' registry for project-based context injection.
+    Service to query the Logseq Project-to-Entity context index.
+
+    Important terminology:
+    - ``projects`` in SQLite owns structural identity (project_id, owner,
+      lifecycle).
+    - Logseq/project_manifest.json is the human-editable mirror/context cache.
+      It may contain the whole visible project control-panel state, but it
+      should not silently rewrite structural identity fields.
     """
 
     def __init__(self, manifest_path: str):

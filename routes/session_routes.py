@@ -10,7 +10,7 @@ import logging
 from core.session_manager import SessionManager
 from core.models import ChatMessage
 from src.request_models import SessionResponse
-from core.database import Session as DbSession, SessionLocal, Document, GalleryImage
+from core.database import Session as DbSession, SessionLocal, Document, GalleryImage, Project
 from src.auth_helpers import get_current_user, effective_user, _auth_disabled
 
 
@@ -262,7 +262,9 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             last_msg_map = {}
             mode_map = {}
             msg_count_map = {}
-            rows = db.query(DbSession.id, DbSession.folder, DbSession.total_input_tokens, DbSession.total_output_tokens, DbSession.is_important, DbSession.created_at, DbSession.updated_at, DbSession.last_message_at, DbSession.mode, DbSession.message_count).filter(DbSession.archived == False, DbSession.owner == user).all()
+            project_map = {}
+            tags_map = {}
+            rows = db.query(DbSession.id, DbSession.folder, DbSession.total_input_tokens, DbSession.total_output_tokens, DbSession.is_important, DbSession.created_at, DbSession.updated_at, DbSession.last_message_at, DbSession.mode, DbSession.message_count, DbSession.project_id, DbSession.tags_json).filter(DbSession.archived == False, DbSession.owner == user).all()
             for row in rows:
                 folder_map[row.id] = row.folder
                 token_map[row.id] = (row.total_input_tokens or 0) + (row.total_output_tokens or 0)
@@ -278,6 +280,9 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                 )
                 mode_map[row.id] = row.mode
                 msg_count_map[row.id] = row.message_count or 0
+                project_map[row.id] = row.project_id
+                try: tags_map[row.id] = json.loads(row.tags_json or "[]")
+                except Exception: tags_map[row.id] = []
             # Sessions with active documents that have content
             from sqlalchemy import func
             doc_session_ids = set(
@@ -308,7 +313,9 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                      "has_documents": s.id in doc_session_ids,
                      "has_images": s.id in img_session_ids,
                      "mode": mode_map.get(s.id),
-                     "message_count": msg_count_map.get(s.id, 0)}
+                     "message_count": msg_count_map.get(s.id, 0),
+                     "project_id": project_map.get(s.id),
+                     "tags": tags_map.get(s.id, [])}
                     for s in user_sessions.values()
                     if not s.archived
                     and (s.name or "").strip() not in ("Nobody", "Incognito")
@@ -443,6 +450,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
         name: str = Form(None), folder: str = Form(None),
         model: str = Form(None), endpoint_url: str = Form(None),
         endpoint_id: str = Form(None),
+        project_id: str = Form(None), tags: str = Form(None),
     ):
         _verify_session_owner(request, sid)
         try:
@@ -463,6 +471,27 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                     db_session.updated_at = datetime.utcnow()
                     db.commit()
                     result["folder"] = folder if folder else None
+            finally:
+                db.close()
+        if project_id is not None or tags is not None:
+            db = SessionLocal()
+            try:
+                db_session = db.query(DbSession).filter(DbSession.id == sid).first()
+                if not db_session:
+                    raise HTTPException(404, "Session not found")
+                if project_id is not None:
+                    clean_project = project_id.strip()
+                    if clean_project:
+                        project = db.query(Project).filter(Project.project_id == clean_project, Project.owner == effective_user(request), Project.archived_at.is_(None)).first()
+                        if not project:
+                            raise HTTPException(400, "Project not found")
+                    db_session.project_id = clean_project or None
+                    result["project_id"] = db_session.project_id
+                if tags is not None:
+                    parsed = [item.strip().lstrip("#") for item in tags.split(",") if item.strip()]
+                    db_session.tags_json = json.dumps(list(dict.fromkeys(parsed)))
+                    result["tags"] = json.loads(db_session.tags_json)
+                db.commit()
             finally:
                 db.close()
         # Switch model/endpoint mid-session
@@ -514,6 +543,34 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             result["model"] = model
             result["endpoint_url"] = endpoint_url
         return result
+
+    @router.post("/session/{sid}/metadata/autofill")
+    def autofill_session_metadata(request: Request, sid: str):
+        """Classify one chat only; never scan other sessions."""
+        _verify_session_owner(request, sid, session_manager)
+        try:
+            session = session_manager.get_session(sid)
+        except KeyError:
+            raise HTTPException(404, f"Session {sid} not found")
+        text = "\n".join(_message_text(msg) for msg in list(session.history)[-30:])[:20000]
+        user = effective_user(request)
+        db = SessionLocal()
+        try:
+            projects = db.query(Project).filter(Project.owner == user, Project.archived_at.is_(None)).all()
+            matches = [p for p in projects if p.name and re.search(r"(?<!\\w)" + re.escape(p.name) + r"(?!\\w)", text, re.I)]
+            project = matches[0] if len(matches) == 1 else None
+            row = db.query(DbSession).filter(DbSession.id == sid).first()
+            if not row:
+                raise HTTPException(404, "Session not found")
+            if project:
+                row.project_id = project.project_id
+                try: tags = json.loads(project.tags_json or "[]")
+                except Exception: tags = []
+                row.tags_json = json.dumps(tags)
+            db.commit()
+            return {"project_id": row.project_id, "tags": json.loads(row.tags_json or "[]"), "matched": bool(project)}
+        finally:
+            db.close()
     
     @router.post("/session/{sid}/inject_messages")
     async def inject_messages(request: Request, sid: str):

@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import sqlite3
 from datetime import datetime, timezone
@@ -128,6 +129,8 @@ class Session(TimestampMixin, Base):
     total_output_tokens = Column(Integer, default=0)
     mode = Column(String, nullable=True)  # 'agent', 'chat', or 'research'
     crew_member_id = Column(String, nullable=True)  # links to crew_members.id
+    project_id = Column(String, nullable=True, index=True)
+    tags_json = Column(Text, nullable=True, default="[]")
 
     # Relationship to chat messages
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
@@ -156,6 +159,8 @@ class Session(TimestampMixin, Base):
             'total_input_tokens': self.total_input_tokens or 0,
             'total_output_tokens': self.total_output_tokens or 0,
             'crew_member_id': self.crew_member_id,
+            'project_id': self.project_id,
+            'tags': json.loads(self.tags_json or "[]"),
         }
 
 class ChatMessage(Base):
@@ -606,17 +611,21 @@ class Project(TimestampMixin, Base):
     """Durable project registry entry.
 
     Projects are stable containers for future project-centered features.
-    ``project_id`` is the public identity; names and metadata are intentionally
-    mutable.
+    ``project_id`` is the public identity. Human-facing project state is
+    intentionally mirrorable/editable from Logseq; only identity/ownership/
+    lifecycle fields are structural.
     """
     __tablename__ = "projects"
 
-    project_id  = Column(String, primary_key=True, index=True)
-    owner       = Column(String, nullable=True, index=True)
-    name        = Column(String, nullable=False)
-    description = Column(Text, nullable=True, default="")
-    root_path   = Column(Text, nullable=True)
-    archived_at = Column(DateTime, nullable=True, index=True)
+    project_id       = Column(String, primary_key=True, index=True)
+    owner            = Column(String, nullable=True, index=True)
+    name             = Column(String, nullable=False)
+    description      = Column(Text, nullable=True, default="")
+    root_path        = Column(Text, nullable=True)
+    tags_json        = Column(Text, nullable=True, default="[]")
+    logseq_page_path = Column(Text, nullable=True)
+    mirror_json      = Column(Text, nullable=True, default="{}")
+    archived_at      = Column(DateTime, nullable=True, index=True)
 
     __table_args__ = (
         Index('ix_projects_owner_archived_updated', 'owner', 'archived_at', 'updated_at'),
@@ -1440,6 +1449,44 @@ def _migrate_add_assistant_columns():
         logging.getLogger(__name__).warning(f"assistant columns migration: {e}")
 
 
+def _migrate_add_project_mirror_columns():
+    """Add Logseq mirror/control-panel fields to existing project rows."""
+    try:
+        with engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(text("PRAGMA table_info(projects)"))]
+            if not cols:
+                return
+            if "tags_json" not in cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN tags_json TEXT DEFAULT '[]'"))
+                conn.commit()
+                logging.getLogger(__name__).info("Added tags_json column to projects")
+            if "logseq_page_path" not in cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN logseq_page_path TEXT"))
+                conn.commit()
+                logging.getLogger(__name__).info("Added logseq_page_path column to projects")
+            if "mirror_json" not in cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN mirror_json TEXT DEFAULT '{}'"))
+                conn.commit()
+                logging.getLogger(__name__).info("Added mirror_json column to projects")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"project mirror column migration: {e}")
+
+
+def _migrate_add_session_project_metadata():
+    """Add project/tag fields used by chat-level metadata editing."""
+    try:
+        with engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(text("PRAGMA table_info(sessions)"))]
+            if "project_id" not in cols:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN project_id TEXT"))
+            if "tags_json" not in cols:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN tags_json TEXT DEFAULT '[]'"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sessions_project_id ON sessions(project_id)"))
+            conn.commit()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"session project metadata migration: {e}")
+
+
 
 
 
@@ -1645,6 +1692,8 @@ def init_db():
     _migrate_drop_ping_notes_tasks()
     _migrate_add_crew_member_id()
     _migrate_add_assistant_columns()
+    _migrate_add_project_mirror_columns()
+    _migrate_add_session_project_metadata()
     _migrate_add_email_smtp_security()
     _migrate_seed_email_account()
     _migrate_add_calendar_metadata()

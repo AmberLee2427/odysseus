@@ -17,8 +17,8 @@ import searchChatModule from './js/search-chat.js';
 import { makeWindowDraggable } from './js/windowDrag.js';
 import markdownModule from './js/markdown.js';
 import chatRenderer from './js/chatRenderer.js';
-import sessionModule from './js/sessions.js';
-import projectModule from './js/projects.js';
+import sessionModule from './js/sessions.js?v=project-ui6';
+import projectModule from './js/projects.js?v=6';
 import memoryModule from './js/memory.js';
 import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
@@ -660,6 +660,7 @@ function initializeEventListeners() {
 
   // ── Helper: start a fresh chat (deselect current, clear history, show welcome) ──
   function _startFreshChat() {
+    if (projectModule && projectModule.clearProjectMode) projectModule.clearProjectMode();
     try {
       const prevId = sessionModule && sessionModule.getCurrentSessionId ? sessionModule.getCurrentSessionId() : null;
       if (chatModule && chatModule.detachCurrentStream) chatModule.detachCurrentStream(prevId);

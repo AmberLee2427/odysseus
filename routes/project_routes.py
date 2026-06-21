@@ -1,10 +1,10 @@
 """Project Registry API routes."""
 
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core.database import SessionLocal
 from services.project_registry import ProjectNotFoundError, ProjectRegistry
@@ -13,18 +13,28 @@ from src.auth_helpers import get_current_user
 logger = logging.getLogger(__name__)
 
 
-class ProjectCreate(BaseModel):
+class _ProjectModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProjectCreate(_ProjectModel):
     project_id: Optional[str] = None
     id: Optional[str] = None
     name: str
     description: Optional[str] = None
     root_path: Optional[str] = None
+    tags: Optional[List[str]] = None
+    logseq_page_path: Optional[str] = None
+    mirror: Optional[Dict[str, Any]] = None
 
 
-class ProjectUpdate(BaseModel):
+class ProjectUpdate(_ProjectModel):
     name: Optional[str] = None
     description: Optional[str] = None
     root_path: Optional[str] = None
+    tags: Optional[List[str]] = None
+    logseq_page_path: Optional[str] = None
+    mirror: Optional[Dict[str, Any]] = None
 
 
 def _provided(body: BaseModel, field: str) -> bool:
@@ -67,6 +77,9 @@ def setup_project_routes() -> APIRouter:
                 name=body.name,
                 description=body.description,
                 root_path=body.root_path,
+                tags=body.tags,
+                logseq_page_path=body.logseq_page_path,
+                mirror=body.mirror,
             )
         except ValueError as error:
             db.rollback()
@@ -90,6 +103,12 @@ def setup_project_routes() -> APIRouter:
                 kwargs["description"] = body.description or ""
             if _provided(body, "root_path"):
                 kwargs["root_path"] = body.root_path or ""
+            if _provided(body, "tags"):
+                kwargs["tags"] = body.tags or []
+            if _provided(body, "logseq_page_path"):
+                kwargs["logseq_page_path"] = body.logseq_page_path or ""
+            if _provided(body, "mirror"):
+                kwargs["mirror"] = body.mirror or {}
             return registry.update_project(project_id, **kwargs)
         except ProjectNotFoundError:
             raise HTTPException(404, "Project not found")
