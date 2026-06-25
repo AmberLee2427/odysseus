@@ -6,10 +6,12 @@ import uiModule, { styledPrompt } from './ui.js';
 import markdownModule from './markdown.js';
 import chatRenderer from './chatRenderer.js';
 import { providerLogo } from './providers.js';
-import { initModelPicker, updateModelPicker } from './modelPicker.js';
+import { initModelPicker, updateModelPicker } from './modelPicker.js?v=singleton1';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
-import projectModule from './projects.js?v=6';
+// Keep exactly the same module URL as app.js and the sidebar preload. A query
+// mismatch creates a second project-module instance with stale render logic.
+import projectModule from './projects.js?v=20';
 
 const API_BASE = window.location.origin;
 
@@ -1906,7 +1908,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
 // Pending session — stored locally until the first message is sent
 let _pendingChat = null; // { url, modelId, endpointId }
 
-export function createDirectChat(url, modelId, endpointId) {
+export function createDirectChat(url, modelId, endpointId, projectId = null) {
   _sessionNavToken++;
   // Detach any active stream so it doesn't interfere with the new chat
   if (window.chatModule && window.chatModule.detachCurrentStream) {
@@ -1920,7 +1922,7 @@ export function createDirectChat(url, modelId, endpointId) {
   }
 
   // Don't hit the API — just store the model info and prepare the UI
-  _pendingChat = { url, modelId, endpointId };
+  _pendingChat = { url, modelId, endpointId, projectId };
   _skipAutoSelect = true;
   currentSessionId = null;
   Storage.remove('lastSessionId');
@@ -2002,6 +2004,11 @@ export async function materializePendingSession() {
   if (!res.ok) {
     uiModule.showError(`Session create failed (${res.status}) ${payload.detail || JSON.stringify(payload)}`);
     return false;
+  }
+  if (pending.projectId && payload.id) {
+    const metadata = new FormData();
+    metadata.append('project_id', pending.projectId);
+    await fetch(`${API_BASE}/api/session/${encodeURIComponent(payload.id)}`, { method: 'PATCH', body: metadata }).catch(() => {});
   }
 
   if (isIncognito && payload.id) {

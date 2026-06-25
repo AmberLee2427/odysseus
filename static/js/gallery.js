@@ -6,6 +6,7 @@ import uiModule from './ui.js';
 import { openEditor, closeEditor, isEditorOpen } from './galleryEditor.js';
 import spinnerModule from './spinner.js';
 import { makeWindowDraggable } from './windowDrag.js';
+import comfyuiModule from './comfyui.js';
 
 const API_BASE = window.location.origin;
 let _open = false;
@@ -60,6 +61,47 @@ let _albums = [];
 let _albumSearch = '';
 let _albumSelectMode = false;
 const _albumSelected = new Set();
+
+function _selectGalleryTab(tabName) {
+  const tab = document.querySelector(`#gallery-modal .gallery-tab[data-tab="${tabName}"]`);
+  if (tab) tab.click();
+}
+
+function _comfyAppSettingsRowsHtml() {
+  const apps = typeof comfyuiModule.getApps === 'function' ? comfyuiModule.getApps() : [];
+  return apps.map((app) => {
+    const bg = typeof comfyuiModule.getAppBackground === 'function'
+      ? comfyuiModule.getAppBackground(app.id)
+      : (app.example || '');
+    return `
+      <div class="gallery-comfy-setting-row" data-comfy-app="${_esc(app.id)}">
+        <div>
+          <strong>${_esc(app.name)}</strong>
+          <em>${_esc(app.status || '')}</em>
+        </div>
+        <span>${_esc(app.subtitle || app.useCase || '')}</span>
+        <label class="gallery-comfy-bg-field">
+          <span>Card background</span>
+          <input type="url" data-comfy-bg="${_esc(app.id)}" value="${_esc(bg)}" placeholder="https://… or /api/gallery/image/…" spellcheck="false">
+        </label>
+      </div>
+    `;
+  }).join('');
+}
+
+function _wireComfyAppSettings(modal) {
+  modal.querySelectorAll('[data-comfy-bg]').forEach((input) => {
+    input.addEventListener('change', () => {
+      comfyuiModule.setAppBackground?.(input.dataset.comfyBg, input.value);
+    });
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      comfyuiModule.setAppBackground?.(input.dataset.comfyBg, input.value);
+      input.blur();
+    });
+  });
+}
 
 // ---- API helpers ----
 
@@ -1914,13 +1956,18 @@ function _makeGalleryDraggable(content) {
 // Re-export the manager for the rail click handler
 import * as Modals from './modalManager.js';
 
-export function openGallery() {
+export function openGallery(options = {}) {
+  const initialTab = typeof options === 'string' ? options : options?.tab;
   // If already minimized — restore in place, preserve all state
   if (Modals.isRegistered('gallery-modal') && Modals.isMinimized('gallery-modal')) {
     Modals.restore('gallery-modal');
+    if (initialTab) setTimeout(() => _selectGalleryTab(initialTab), 0);
     return;
   }
-  if (_open) return;
+  if (_open) {
+    if (initialTab) _selectGalleryTab(initialTab);
+    return;
+  }
   _open = true;
   _galleryCascaded = false;   // replay the domino-in cascade on each open
   // State is preserved across close/reopen — filters, album, sort, items,
@@ -1953,6 +2000,10 @@ export function openGallery() {
         <button class="gallery-tab" data-tab="albums">
           <span class="gallery-tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
           <span class="gallery-tab-label">Albums</span>
+        </button>
+        <button class="gallery-tab" data-tab="comfyui">
+          <span class="gallery-tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5M12 15v5M4 12h5M15 12h5"/></svg></span>
+          <span class="gallery-tab-label">ComfyUI</span>
         </button>
         <button class="gallery-tab" data-tab="editor" id="gallery-editor-tab">
           <span class="gallery-tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span>
@@ -2004,8 +2055,19 @@ export function openGallery() {
         <div class="gallery-detail" id="gallery-detail" style="display:none"></div>
         </div>
         <div class="gallery-albums-container" id="gallery-albums-container" style="display:none;"></div>
+        <div class="gallery-comfyui-container" id="gallery-comfyui-container" style="display:none;"></div>
         <div class="gallery-editor-container" id="gallery-editor-container" style="display:none;"></div>
         <div class="gallery-settings-container" id="gallery-settings-container" style="display:none;">
+          <div class="admin-card" id="gallery-comfy-apps-settings">
+            <h2>Comfy apps <span class="memory-count" style="font-size:0.6em;opacity:0.6;font-weight:normal;">workflow forms</span></h2>
+            <p class="memory-desc doclib-desc">Define the app cards shown in the ComfyUI tab. Background images are cosmetic; workflow fields stay with the configured app form.</p>
+            <div class="gallery-comfy-settings-grid">
+              ${_comfyAppSettingsRowsHtml()}
+            </div>
+            <div class="memory-toolbar" style="display:flex;flex-direction:row;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;">
+              <button class="memory-toolbar-btn" id="gallery-comfy-open-tab-btn" title="Open the ComfyUI app cards">Open Comfy apps</button>
+            </div>
+          </div>
           <div class="admin-card">
             <h2>AI Tagging <span id="gallery-tag-count" class="memory-count" style="font-size:0.6em;opacity:0.6;font-weight:normal;"></span></h2>
             <p class="memory-desc doclib-desc">Auto-tag photos by content with your <a href="#" id="gallery-vision-link" class="ge-vision-link">vision model</a>. Your own tags are kept.</p>
@@ -2031,6 +2093,7 @@ export function openGallery() {
     </div>
   `;
   document.body.appendChild(modal);
+  _wireComfyAppSettings(modal);
   Modals.register('gallery-modal', {
     railBtnId: 'rail-gallery',
     sidebarBtnId: 'tool-gallery-btn',
@@ -2056,6 +2119,9 @@ export function openGallery() {
     closeGallery();
   });
   document.getElementById('gallery-comfyui-sync')?.addEventListener('click', () => _syncComfyUI());
+  document.getElementById('gallery-comfy-open-tab-btn')?.addEventListener('click', () => {
+    modal.querySelector('.gallery-tab[data-tab="comfyui"]')?.click();
+  });
 
   // Double-click the Edit tab to rename what's being edited. The label
   // shows up everywhere it's referenced by id (#gallery-editor-tab), so a
@@ -2128,17 +2194,23 @@ export function openGallery() {
       if (_detail) _detail.style.display = 'none';
       const imagesContainer = document.getElementById('gallery-images-container');
       const albumsContainer = document.getElementById('gallery-albums-container');
+      const comfyuiContainer = document.getElementById('gallery-comfyui-container');
       const editorContainer = document.getElementById('gallery-editor-container');
       const settingsContainer = document.getElementById('gallery-settings-container');
       if (imagesContainer) imagesContainer.style.display = target === 'images' ? '' : 'none';
       if (albumsContainer) albumsContainer.style.display = target === 'albums' ? '' : 'none';
+      if (comfyuiContainer) comfyuiContainer.style.display = target === 'comfyui' ? '' : 'none';
       if (editorContainer) editorContainer.style.display = target === 'editor' ? 'flex' : 'none';
       if (settingsContainer) settingsContainer.style.display = target === 'settings' ? '' : 'none';
+      if (target !== 'comfyui') comfyuiModule.close?.();
       if (target === 'images') {
         // Keep active edits alive when leaving the Edit tab. The edit
         // session is only torn down by the explicit Edit-tab close.
       } else if (target === 'albums') {
         _renderAlbumsTab();
+      } else if (target === 'comfyui') {
+        comfyuiModule.mountInto(comfyuiContainer);
+        comfyuiModule.refresh();
       } else if (target === 'editor') {
         // If the editor isn't already holding an image, render a chooser so the
         // tab does something useful instead of opening an empty grey pane.
@@ -2788,6 +2860,7 @@ export function openGallery() {
   _fetchAlbums();
   _fetchLibrary(false);
   _syncComfyUI({ silent: true });
+  if (initialTab) _selectGalleryTab(initialTab);
   searchInput.focus();
 }
 

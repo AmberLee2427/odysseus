@@ -17,24 +17,23 @@ import searchChatModule from './js/search-chat.js';
 import { makeWindowDraggable } from './js/windowDrag.js';
 import markdownModule from './js/markdown.js';
 import chatRenderer from './js/chatRenderer.js';
-import sessionModule from './js/sessions.js?v=project-ui6';
-import projectModule from './js/projects.js?v=6';
+import sessionModule from './js/sessions.js?v=project-controls9';
+import projectModule from './js/projects.js?v=20';
 import memoryModule from './js/memory.js';
 import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
-import comfyuiModule from './js/comfyui.js';
 import terminalModule from './js/terminal.js?v=20260613h';
 import tasksModule from './js/tasks.js';
 import calendarModule from './js/calendar.js';
 import notesModule from './js/notes.js';
 import adminModule from './js/admin.js';
-import settingsModule from './js/settings.js?v=20260613c';
+import settingsModule from './js/settings.js?v=project-board-settings2';
 // Eagerly bind unified minimize/restore behavior across all tool modals.
 import './js/modalManager.js';
 // Desktop window tiling — drag a modal near an edge/corner to snap.
 import './js/tileManager.js';
-import themeModule from './js/theme.js';
+import themeModule from './js/theme.js?v=project-board-theme3';
 // IMPORTANT: import cookbook.js with NO ?v= query — the same plain specifier
 // every other importer (cookbook-hwfit.js / cookbook-diagnosis.js) uses. A query
 // mismatch makes the browser load cookbook.js twice as separate modules (two
@@ -93,6 +92,8 @@ async function _refreshDefaultChat() {
 _refreshDefaultChat();
 
 async function _createDirectChatFromPreferredModel() {
+  // A pending chat must replace the project canvas, not leave its DOM behind.
+  if (projectModule?.clearProjectMode) projectModule.clearProjectMode();
   if (!sessionModule) return false;
 
   const pending = sessionModule.getPendingChat && sessionModule.getPendingChat();
@@ -840,11 +841,6 @@ function initializeEventListeners() {
     });
   }
 
-  const toolComfyuiBtn = el('tool-comfyui-btn');
-  if (toolComfyuiBtn) {
-    toolComfyuiBtn.addEventListener('click', () => comfyuiModule.toggle());
-  }
-
   const toolTerminalBtn = el('tool-terminal-btn');
   if (toolTerminalBtn) {
     toolTerminalBtn.addEventListener('click', () => terminalModule.toggle());
@@ -1024,7 +1020,7 @@ function initializeEventListeners() {
     },
     '/calendar': () => calendarModule && calendarModule.openCalendar(),
     '/cookbook': () => document.getElementById('tool-cookbook-btn')?.click(),
-    '/comfyui':   () => comfyuiModule.open(),
+    '/comfyui':   () => galleryModule.openGallery({ tab: 'comfyui' }),
     '/terminal':  () => terminalModule.open(),
     '/email':    () => {
       // Collapse the wide sidebar → icon rail (48px) so the user keeps
@@ -2548,7 +2544,6 @@ function initializeEventListeners() {
     'tool-calendar':       '#tool-calendar-btn',
     'tool-compare':        '#tool-compare-btn',
     'tool-cookbook':       '#tool-cookbook-btn',
-    'tool-comfyui':        '#tool-comfyui-btn',
     'tool-terminal':       '#tool-terminal-btn',
     'tool-research':       '#tool-research-btn',
     'tool-gallery':        '#tool-gallery-btn',
@@ -3566,7 +3561,6 @@ function startOdysseusApp() {
     'rail-compare':   'tool-compare-btn',
     'rail-research':  'tool-research-btn',
     'rail-cookbook':   'tool-cookbook-btn',
-    'rail-comfyui':    'tool-comfyui-btn',
     'rail-terminal':   'tool-terminal-btn',
     'rail-archive':   'tool-library-btn',
     'rail-gallery':   'tool-gallery-btn',
@@ -3615,12 +3609,7 @@ function startOdysseusApp() {
   const _railSettings = el('rail-settings');
   if (_railSettings) {
     _railSettings.addEventListener('click', () => {
-      const sidebar = document.getElementById('sidebar');
-      if (sidebar) sidebar.classList.remove('hidden');
-      syncRailSide();
-      // Scroll to bottom where settings typically are
-      const sidebarInner = document.querySelector('.sidebar-inner');
-      if (sidebarInner) sidebarInner.scrollTo({ top: sidebarInner.scrollHeight, behavior: 'smooth' });
+      settingsModule.open();
     });
   }
 

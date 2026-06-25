@@ -746,6 +746,19 @@ export function initThemeUI() {
   const refColors = THEMES[refName] || customThemes[refName] || currentColors;
   const refDefaults = computeAdvancedDefaults(refColors);
 
+  document.querySelectorAll('[data-board-colour]').forEach(select => {
+    let savedBoard = {}; try { savedBoard = JSON.parse(localStorage.getItem('odysseus-project-board-colours') || '{}'); } catch (_) {}
+    if (/^#[0-9a-f]{6}$/i.test(savedBoard[select.dataset.boardColour] || '')) select.value = savedBoard[select.dataset.boardColour];
+    if (select.dataset.boardBound !== '1') {
+      select.dataset.boardBound = '1';
+      select.addEventListener('change', () => {
+        let next = {}; try { next = JSON.parse(localStorage.getItem('odysseus-project-board-colours') || '{}'); } catch (_) {}
+        next[select.dataset.boardColour] = select.value;
+        localStorage.setItem('odysseus-project-board-colours', JSON.stringify(next));
+      });
+    }
+  });
+
   // Sync reset button visibility based on whether color differs from reference
   function syncResetButtons() {
     document.querySelectorAll('.color-reset-btn[data-reset]').forEach(btn => {

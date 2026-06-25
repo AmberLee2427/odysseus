@@ -184,6 +184,8 @@ def _task_to_dict(t: ScheduledTask, include_last_run_result: bool = False) -> di
     d = {
         "id": t.id,
         "name": _display_task_name(t),
+        "project_id": getattr(t, "project_id", None),
+        "tags": json.loads(getattr(t, "tags_json", None) or "[]"),
         "prompt": t.prompt,
         "task_type": t.task_type or "llm",
         "action": t.action,

@@ -38,6 +38,10 @@ caldav
 cryptography
 bcrypt
 mcp
+# Agent research MCP: searches arXiv and stores retrieved paper text in the
+# persistent /app/data/arxiv-papers volume. PDF supports older papers with no
+# HTML rendition; pro enables semantic search and related analysis features.
+arxiv-mcp-server[pdf,pro]
 pyotp
 websockets>=15,<16
 qrcode[pil]

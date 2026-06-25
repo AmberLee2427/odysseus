@@ -211,6 +211,8 @@ class Document(TimestampMixin, Base):
     # SET NULL), orphaning the doc and making it vanish from the owner's
     # Library + search. Owning the row directly is robust against that.
     owner           = Column(String, nullable=True, index=True)
+    project_id      = Column(String, nullable=True, index=True)
+    tags_json       = Column(Text, nullable=True, default="[]")
     tidy_verdict    = Column(String, nullable=True)        # "keep", "junk", or None (not yet reviewed)
     # Provenance: if this document was created by opening an email attachment,
     # these point back to the source email so the "Sign and reply" flow can
@@ -532,6 +534,8 @@ class ScheduledTask(TimestampMixin, Base):
 
     id             = Column(String, primary_key=True, index=True)
     owner          = Column(String, nullable=True, index=True)
+    project_id     = Column(String, nullable=True, index=True)
+    tags_json      = Column(Text, nullable=True, default="[]")
     name           = Column(String, nullable=False, default="Untitled Task")
     prompt         = Column(Text, nullable=True)              # LLM prompt (for task_type="llm")
     task_type      = Column(String, default="llm")            # "llm" | "action"
@@ -1487,6 +1491,24 @@ def _migrate_add_session_project_metadata():
         logging.getLogger(__name__).warning(f"session project metadata migration: {e}")
 
 
+def _migrate_add_artifact_project_metadata():
+    """Give every boardable artifact one canonical project assignment."""
+    try:
+        with engine.connect() as conn:
+            for table in ("notes", "scheduled_tasks", "documents"):
+                cols = [r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))]
+                if not cols:
+                    continue
+                if "project_id" not in cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN project_id TEXT"))
+                if "tags_json" not in cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN tags_json TEXT DEFAULT '[]'"))
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_project_id ON {table}(project_id)"))
+            conn.commit()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"artifact project metadata migration: {e}")
+
+
 
 
 
@@ -1496,6 +1518,8 @@ class Note(TimestampMixin, Base):
 
     id         = Column(String, primary_key=True, index=True)
     owner      = Column(String, nullable=True, index=True)
+    project_id = Column(String, nullable=True, index=True)
+    tags_json  = Column(Text, nullable=True, default="[]")
     title      = Column(String, default="")
     content    = Column(Text, nullable=True)
     items      = Column(Text, nullable=True)       # JSON string of [{text, done}]
@@ -1694,6 +1718,7 @@ def init_db():
     _migrate_add_assistant_columns()
     _migrate_add_project_mirror_columns()
     _migrate_add_session_project_metadata()
+    _migrate_add_artifact_project_metadata()
     _migrate_add_email_smtp_security()
     _migrate_seed_email_account()
     _migrate_add_calendar_metadata()

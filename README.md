@@ -391,6 +391,7 @@ Key settings:
 | `APP_PORT` | `7000` | Docker Compose host port for the web UI. |
 | `COMFYUI_PORT` | `8188` | ComfyUI sidebar-panel port on the same hostname used to open Odysseus. |
 | `COMFYUI_URL` | -- | Optional fixed ComfyUI origin override. |
+| `COMFYUI_PUBLIC_URL` | -- | Optional full ComfyUI URL for the Odysseus “Open full” button, useful once a public hostname such as `https://comfyui.malpas.nz` exists. |
 | `COMFYUI_SCHEME` | request scheme | Optional `http`/`https` override when ComfyUI uses a different scheme. |
 | `COMFYUI_SERVER_URL` | auto-detected | Optional server-side ComfyUI URL used to sync completed outputs into Gallery. |
 | `AUTH_ENABLED` | `true` | Enable/disable login |

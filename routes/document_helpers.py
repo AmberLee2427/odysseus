@@ -3,6 +3,7 @@
 """Document routes — CRUD for living documents with version history."""
 
 import logging
+import json
 import os
 import re
 from typing import Any, Dict, Optional
@@ -46,6 +47,8 @@ def _doc_to_dict(doc: Document) -> Dict[str, Any]:
     return {
         "id": doc.id,
         "session_id": doc.session_id,
+        "project_id": getattr(doc, "project_id", None),
+        "tags": json.loads(getattr(doc, "tags_json", None) or "[]"),
         "title": doc.title,
         "language": doc.language,
         "current_content": read_document_content(doc),

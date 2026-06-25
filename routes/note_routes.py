@@ -73,6 +73,8 @@ def _note_to_dict(note: Note) -> Dict[str, Any]:
     return {
         "id": note.id,
         "owner": note.owner,
+        "project_id": getattr(note, "project_id", None),
+        "tags": json.loads(getattr(note, "tags_json", None) or "[]"),
         "title": note.title,
         "content": note.content,
         "items": items,

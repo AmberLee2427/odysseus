@@ -1722,7 +1722,6 @@ async function initAgentSettings() {
 function initAppearance() {
   syncAppearanceCheckboxes();
   syncPrivacyCheckboxes();
-
   modalEl.querySelectorAll('[data-ui-key]').forEach(function(chk) {
     chk.addEventListener('change', async function() {
       var key = chk.dataset.uiKey;

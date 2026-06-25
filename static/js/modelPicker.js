@@ -81,6 +81,11 @@ function _handlePickerKeydown(e, listEl, itemSelector, closeFn) {
 
 // Dependencies injected via initModelPicker()
 let _deps = null;
+// sessions.js can be reached through more than one module specifier while the
+// app is cache-busted. Keep the picker UI itself singleton: two click handlers
+// on the same button make the second handler immediately close the menu the
+// first one has just opened.
+let _dropdownInitialized = false;
 let _autoSelectingDefault = false;
 
 function _modelExists(modelId, url) {
@@ -107,6 +112,8 @@ function _modelExists(modelId, url) {
  */
 export function initModelPicker(deps) {
   _deps = deps;
+  if (_dropdownInitialized) return;
+  _dropdownInitialized = true;
   _initModelPickerDropdown();
 }
 
@@ -606,6 +613,11 @@ function _initModelPickerDropdown() {
     if (match) await _pick(match);
   });
 
+  btn.addEventListener('pointerdown', (e) => {
+    // Keep this interaction out of document-level dismissal handlers before
+    // the click opens the menu (and keep focus available for its search box).
+    e.stopPropagation();
+  });
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (menu.classList.contains('hidden') || menu.classList.contains('closing')) {
@@ -646,7 +658,7 @@ function _initModelPickerDropdown() {
     });
   }
   document.addEventListener('click', (e) => {
-    if (!menu.classList.contains('hidden') && !menu.contains(e.target) && e.target !== btn) {
+    if (!menu.classList.contains('hidden') && !wrap.contains(e.target)) {
       _close();
     }
   });

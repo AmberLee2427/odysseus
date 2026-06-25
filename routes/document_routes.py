@@ -1,6 +1,7 @@
 """Document routes — CRUD for living documents with version history."""
 
 import uuid
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
@@ -380,6 +381,8 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
                 documents.append({
                     "id": doc.id,
                     "session_id": doc.session_id,
+                    "project_id": getattr(doc, "project_id", None),
+                    "tags": json.loads(getattr(doc, "tags_json", None) or "[]"),
                     "session_name": session_name,
                     "title": doc.title,
                     "language": _library_language_for_document(doc),

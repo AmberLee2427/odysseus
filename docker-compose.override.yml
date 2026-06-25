@@ -1,0 +1,23 @@
+# Local development speed-up.
+#
+# Docker Compose loads this file automatically alongside docker-compose.yml.
+# The base image still provides Python/system dependencies, but app source is
+# bind-mounted from the host so UI/backend edits do not require a rebuild.
+#
+# Fast loops:
+#   - static/js/css/html change: refresh the browser
+#   - Python route/app change: docker compose restart odysseus
+#   - requirements/Dockerfile change: docker compose up -d --build odysseus
+services:
+  odysseus:
+    volumes:
+      - ./app.py:/app/app.py:z
+      - ./setup.py:/app/setup.py:z
+      - ./core:/app/core:z
+      - ./routes:/app/routes:z
+      - ./src:/app/src:z
+      - ./services:/app/services:z
+      - ./mcp_servers:/app/mcp_servers:z
+      - ./comfyui_workflows:/app/comfyui_workflows:z
+      - ./static:/app/static:z
+      - ./scripts:/app/scripts:z

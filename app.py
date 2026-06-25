@@ -377,18 +377,15 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 
 
 class _RevalidatingStatic(StaticFiles):
-    """Serve static assets normally, but force the browser to REVALIDATE
-    source files (.js/.css/.html) on every load instead of serving a stale
-    copy from disk cache. The app ships raw ES modules with no build step or
-    versioned URLs, so browsers were caching modules across deploys — a code
-    change wouldn't appear without a manual hard-refresh. `no-cache` keeps the
-    cached bytes but requires a conditional request; unchanged files still
-    return a cheap 304 (ETag/Last-Modified are preserved)."""
+    """Never cache executable UI source through browser or CDN layers."""
 
     async def get_response(self, path, scope):
         resp = await super().get_response(path, scope)
-        if path.endswith((".js", ".css", ".html")):
-            resp.headers["Cache-Control"] = "no-cache"
+        if path.endswith((".js", ".css", ".html")) or path == "sw.js":
+            # Cloudflare's cache layer can otherwise retain an old ES-module
+            # graph even when the browser correctly reloads the app shell.
+            for header in ("Cache-Control", "CDN-Cache-Control", "Cloudflare-CDN-Cache-Control"):
+                resp.headers[header] = "no-store, max-age=0, must-revalidate"
         return resp
 
 
@@ -629,6 +626,11 @@ app.include_router(setup_signature_routes())
 from routes.gallery_routes import setup_gallery_routes
 app.include_router(setup_gallery_routes())
 
+# ComfyUI backend-control panel. This keeps the browser on Odysseus' HTTPS
+# origin and lets the server talk to local ComfyUI without iframe mixed content.
+from routes.comfyui_routes import setup_comfyui_routes
+app.include_router(setup_comfyui_routes())
+
 # Project Registry (durable project-centered containers)
 from routes.project_routes import setup_project_routes
 app.include_router(setup_project_routes())
@@ -755,7 +757,12 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
         html = f.read()
     nonce = getattr(request.state, "csp_nonce", "")
     html = html.replace("{{CSP_NONCE}}", nonce)
-    return HTMLResponse(html)
+    # The HTML shell contains the versioned module graph. Never let a tunnel
+    # cache keep an old shell alive after a deploy.
+    headers = {key: "no-store, max-age=0, must-revalidate" for key in (
+        "Cache-Control", "CDN-Cache-Control", "Cloudflare-CDN-Cache-Control",
+    )}
+    return HTMLResponse(html, headers=headers)
 
 @app.get("/")
 async def serve_index(request: Request):
@@ -773,6 +780,16 @@ async def serve_notes(request: Request):
 
 @app.get("/calendar")
 async def serve_calendar(request: Request):
+    return await serve_index(request)
+
+@app.get("/projects")
+async def serve_projects(request: Request):
+    """Project landing route; also lets clients escape an old cached root shell."""
+    return await serve_index(request)
+
+@app.get("/_refresh-20260621")
+async def refresh_cached_shell(request: Request):
+    """One-time escape hatch for browsers controlled by a stale app shell."""
     return await serve_index(request)
 
 # Per-tool deep-link routes — all serve the same SPA, the JS auto-opens

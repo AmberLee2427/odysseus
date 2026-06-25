@@ -24,20 +24,19 @@ if ! getent passwd "$PUID" >/dev/null 2>&1; then
     useradd -u "$PUID" -g "$PGID" -M -s /bin/sh -d /app odysseus
 fi
 
-# Repair ownership on every writable path the app touches at runtime.
+# Repair ownership on writable runtime paths.
 #
-# Bind-mounted dirs (/app/data, /app/logs) are the obvious ones, but
-# the app ALSO writes inside the image's own source tree at runtime:
-#   - services/cache/{search,content}/*  (search cache LRU)
-#   - services/search_analytics.json
-#   - services/search_engine_error.log
-#   - services/tts cache, etc.
-# These dirs were created as root during `docker build`, so dropping
-# to PUID:PGID would otherwise crash on the first import that tries
-# to mkdir them. Chown the whole /app tree — fast (<1s on this size)
-# and idempotent via the `-not -uid` filter so we only touch files
-# that need fixing.
-for dir in /app /app/data /app/logs; do
+# Do not scan/chown all of /app here. In local development we bind-mount source
+# directories into /app so a whole-tree ownership pass makes every restart feel
+# much slower than it needs to. The app only needs write access to data/logs,
+# user-installed tools, SSH/cache dirs, and services' runtime cache/log files.
+for dir in \
+    /app/data \
+    /app/logs \
+    /app/.local \
+    /app/.cache \
+    /app/.ssh \
+    /app/services; do
     if [ -d "$dir" ]; then
         # `find ... -not -uid` keeps this O(touched-files), not
         # O(everything), so terabyte-sized maildirs don't slow startup.

@@ -173,7 +173,7 @@ export function renderProjectSidebar({ error = '' } = {}) {
       await openProjectDashboard(id);
       const sidebar = document.getElementById('sidebar');
       const backdrop = document.getElementById('sidebar-backdrop');
-      if (window.innerWidth < 768 && sidebar) {
+      if (sidebar) {
         sidebar.classList.add('hidden');
         if (backdrop) backdrop.classList.remove('visible');
         if (window.syncRailSide) window.syncRailSide();
@@ -195,6 +195,313 @@ export function renderProjectSidebar({ error = '' } = {}) {
 function _projectSessions(project, sessions) {
   const id = _projectId(project);
   return (sessions || []).filter(session => String(session?.project_id || session?.projectId || '') === id);
+}
+
+const BOARD_DEFAULT = {
+  version: 1,
+  cards: [],
+};
+
+const CARD_COLOURS = ['paper', 'peach', 'lilac', 'mint', 'sky', 'sun'];
+const DEFAULT_CARD_COLOURS = { chat: 'sky', note: 'sun', task: 'mint', document: 'lilac' };
+
+function _defaultCardColour(type) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('odysseus-project-board-colours') || '{}');
+    return (CARD_COLOURS.includes(saved[type]) || /^#[0-9a-f]{6}$/i.test(saved[type] || '')) ? saved[type] : (DEFAULT_CARD_COLOURS[type] || 'paper');
+  } catch (_) { return DEFAULT_CARD_COLOURS[type] || 'paper'; }
+}
+
+function _boardFor(project) {
+  const mirror = project?.mirror && typeof project.mirror === 'object' ? project.mirror : {};
+  const board = mirror.board && typeof mirror.board === 'object' ? mirror.board : {};
+  return { ...BOARD_DEFAULT, ...board, cards: Array.isArray(board.cards) ? board.cards : [] };
+}
+
+function _cardKey(type, id) { return `${type}:${id}`; }
+
+function _escapeText(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+}
+
+function _renderAnnotationMarkdown(value) {
+  let html = _escapeText(value || '');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function _artifactFor(card, artifacts) {
+  return artifacts.find(item => item.key === card.artifact_key) || null;
+}
+
+async function _loadBoardArtifacts(sessions) {
+  const chats = (sessions || []).map(session => ({
+    key: _cardKey('chat', session.id), type: 'chat', id: session.id,
+    title: _safeText(session.name, 'Untitled chat'), preview: 'Conversation', project_id: session.project_id || null, data: session,
+  }));
+  const load = async (url, field, type, map) => {
+    try {
+      const res = await fetch(`${API_BASE}${url}`, { credentials: 'same-origin' });
+      const data = await _jsonOrThrow(res);
+      return (Array.isArray(data?.[field]) ? data[field] : []).map(item => ({
+        key: _cardKey(type, item.id), type, id: item.id, project_id: item.project_id || null, ...map(item), data: item,
+      }));
+    } catch (_) { return []; }
+  };
+  const [notes, tasks, documents] = await Promise.all([
+    load('/api/notes', 'notes', 'note', note => ({
+      title: _safeText(note.title, 'Untitled note'),
+      preview: _safeText(note.content || note.items, 'Note'),
+    })),
+    load('/api/tasks', 'tasks', 'task', task => ({
+      title: _safeText(task.name, 'Untitled task'),
+      preview: _safeText(task.status, 'Task'),
+    })),
+    load('/api/documents/library?limit=50', 'documents', 'document', doc => ({
+      title: _safeText(doc.title, 'Untitled document'),
+      preview: _safeText(doc.preview, doc.language || 'Document'),
+    })),
+  ]);
+  return [...chats, ...notes, ...tasks, ...documents];
+}
+
+function _cardIcon(type) {
+  return ({ chat: '◌', note: '✦', task: '✓', document: '▤' })[type] || '•';
+}
+
+function _createBoardCard(card, artifact, board, persist, editAnnotation) {
+  const node = document.createElement('article');
+  node.className = `project-board-card project-board-card--${card.colour || 'paper'}`;
+  if (/^#[0-9a-f]{6}$/i.test(card.colour || '')) node.style.setProperty('--card-bg', `color-mix(in srgb, ${card.colour} 38%, var(--panel))`);
+  node.dataset.cardId = card.id;
+  node.style.setProperty('--board-x', `${card.x ?? 90}px`);
+  node.style.setProperty('--board-y', `${card.y ?? 80}px`);
+  node.style.setProperty('--board-w', `${card.w ?? 230}px`);
+  node.style.setProperty('--board-h', `${card.h ?? 160}px`);
+  node.style.setProperty('--board-rotation', `${card.rotation ?? 0}deg`);
+  node.style.zIndex = String(card.z || 1);
+  const annotation = card.type === 'annotation';
+  if (annotation) {
+    node.classList.add('project-board-annotation');
+    node.classList.toggle('annotation-transparent', card.transparent !== false);
+    node.classList.toggle('annotation-shadow', !!card.shadow);
+    node.style.setProperty('--annotation-colour', card.background_colour || '#f9d85d');
+    node.style.setProperty('--annotation-text-colour', card.text_colour || 'var(--fg)');
+  }
+  const title = annotation ? '' : (artifact?.title || card.title || 'Missing artifact');
+  const preview = annotation ? _safeText(card.text, 'Double-click to write a note.') : (artifact?.preview || 'This source artifact is no longer available.');
+  node.innerHTML = `
+    <div class="project-board-card-bar" title="Drag card">
+      <span class="project-board-type">${annotation ? '' : `${_cardIcon(card.type)} ${_escapeText(card.type || 'note')}`}</span>
+      <button type="button" class="project-board-card-menu" aria-label="Card menu">•••</button>
+    </div>
+    <div class="project-board-card-body">
+      ${annotation ? `<div class="project-annotation-text">${card.markdown ? _renderAnnotationMarkdown(card.text) : _escapeText(preview)}</div>` : `<h3>${_escapeText(title)}</h3><p>${_escapeText(preview)}</p>`}
+    </div>
+    <div class="project-board-card-options hidden" aria-label="Card options">
+      <span>Colour</span><div class="project-board-colours"></div>
+      <button type="button" class="project-board-remove" title="Remove from board" aria-label="Remove from board"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="m19 6-1 14H6L5 6m3 0V4h8v2m-6 4v6m4-6v6"/></svg> Remove from board</button>
+    </div>
+    ${annotation ? '<button type="button" class="project-board-trash" aria-label="Remove from board" title="Remove from board"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="m19 6-1 14H6L5 6m3 0V4h8v2m-6 4v6m4-6v6"/></svg></button>' : ''}
+    <span class="project-board-rotate" title="Rotate"></span><span class="project-board-resize" title="Resize"></span>`;
+  const bringForward = () => {
+    card.z = Math.max(0, ...board.cards.map(other => Number(other.z) || 0)) + 1;
+    node.style.zIndex = String(card.z);
+  };
+  node.addEventListener('pointerdown', bringForward);
+  const options = node.querySelector('.project-board-card-options');
+  const closeOptions = () => options.classList.add('hidden');
+  const colourPicker = node.querySelector('.project-board-colours');
+  CARD_COLOURS.forEach(colour => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = `project-board-colour project-board-colour--${colour}`;
+    button.title = colour; button.setAttribute('aria-label', `Use ${colour}`);
+    button.addEventListener('pointerdown', event => event.stopPropagation());
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      card.colour = colour;
+      node.className = `project-board-card project-board-card--${colour}`;
+      closeOptions(); persist();
+    });
+    colourPicker.appendChild(button);
+  });
+  node.querySelector('.project-board-card-menu').addEventListener('pointerdown', event => event.stopPropagation());
+  node.querySelector('.project-board-card-menu').addEventListener('click', event => {
+    event.stopPropagation(); options.classList.toggle('hidden');
+  });
+  const remove = event => {
+    event.stopPropagation();
+      board.cards = board.cards.filter(other => other.id !== card.id);
+      node.remove(); persist(); return;
+  };
+  node.querySelector('.project-board-remove').addEventListener('pointerdown', event => event.stopPropagation());
+  node.querySelector('.project-board-remove').addEventListener('click', remove);
+  node.querySelector('.project-board-trash')?.addEventListener('pointerdown', event => event.stopPropagation());
+  node.querySelector('.project-board-trash')?.addEventListener('click', remove);
+  const beginGesture = (handle, mode) => {
+    handle.addEventListener('pointerdown', event => {
+      event.preventDefault(); event.stopPropagation(); bringForward();
+      const startX = event.clientX, startY = event.clientY;
+      const start = { x: card.x ?? 90, y: card.y ?? 80, w: card.w ?? 230, h: card.h ?? 160, rotation: card.rotation ?? 0 };
+      handle.setPointerCapture(event.pointerId);
+      const move = moveEvent => {
+        const dx = moveEvent.clientX - startX, dy = moveEvent.clientY - startY;
+        if (mode === 'drag') { card.x = Math.max(0, start.x + dx); card.y = Math.max(0, start.y + dy); }
+        if (mode === 'resize') { card.w = Math.max(160, start.w + dx); card.h = Math.max(110, start.h + dy); }
+        if (mode === 'rotate') { card.rotation = Math.round((start.rotation + dx / 2) / 5) * 5; }
+        node.style.setProperty('--board-x', `${card.x}px`); node.style.setProperty('--board-y', `${card.y}px`);
+        node.style.setProperty('--board-w', `${card.w}px`); node.style.setProperty('--board-h', `${card.h}px`);
+        node.style.setProperty('--board-rotation', `${card.rotation}deg`);
+      };
+      const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); try { handle.releasePointerCapture(event.pointerId); } catch (_) {} persist(); };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end, { once: true });
+      window.addEventListener('pointercancel', end, { once: true });
+    });
+  };
+  beginGesture(node.querySelector('.project-board-card-bar'), 'drag');
+  beginGesture(node.querySelector('.project-board-resize'), 'resize');
+  beginGesture(node.querySelector('.project-board-rotate'), 'rotate');
+  node.addEventListener('dblclick', () => {
+    if (annotation) { editAnnotation?.(card); return; }
+    const artifactId = artifact?.id;
+    if (card.type === 'chat' && artifactId) window.sessionModule?.selectSession?.(artifactId);
+    if (card.type === 'note' && artifactId) window.notesModule?.openNote?.(artifactId);
+    if (card.type === 'task' && artifactId) window.tasksModule?.openTasks?.(artifactId);
+    if (card.type === 'document' && artifactId) window.documentModule?.loadDocument?.(artifactId);
+  });
+  return node;
+}
+
+function _mountProjectBoard(shell, project, sessions) {
+  const host = shell.querySelector('.project-board');
+  const world = document.createElement('div');
+  world.className = 'project-board-world';
+  const empty = host.querySelector('.project-board-empty');
+  if (empty) world.appendChild(empty);
+  host.replaceChildren(world);
+  const board = _boardFor(project);
+  let zoom = Math.min(1.5, Math.max(0.2, Number(board.zoom) || 1));
+  let artifacts = [];
+  let saveTimer = null;
+  const persist = () => {
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(async () => {
+      try {
+        const updated = await updateProject(_projectId(project), { mirror: { ...(project.mirror || {}), board } });
+        project.mirror = updated?.mirror || { ...(project.mirror || {}), board };
+      } catch (error) { uiModule.showError(`Could not save board: ${error.message}`); }
+    }, 450);
+  };
+  const render = () => {
+    world.querySelectorAll('.project-board-card').forEach(node => node.remove());
+    const bounds = board.cards.reduce((size, card) => ({
+      width: Math.max(size.width, (card.x || 0) + (card.w || 230) + 420),
+      height: Math.max(size.height, (card.y || 0) + (card.h || 160) + 360),
+    }), { width: 2200, height: 1400 });
+    world.style.width = `${bounds.width}px`;
+    world.style.height = `${bounds.height}px`;
+    world.style.zoom = String(zoom);
+    board.cards.forEach(card => world.appendChild(_createBoardCard(card, _artifactFor(card, artifacts), board, persist, editAnnotation)));
+    world.querySelector('.project-board-empty')?.classList.toggle('hidden', board.cards.length > 0);
+  };
+  const editAnnotation = card => {
+    const overlay = document.createElement('div');
+    overlay.className = 'project-annotation-editor';
+    const backlinkOptions = ['<option value="">No backlink</option>', ...artifacts.filter(a => a.type !== 'annotation').map(a => `<option value="${_escapeText(a.key)}">${_escapeText(a.type)} — ${_escapeText(a.title)}</option>`)].join('');
+    overlay.innerHTML = `<form class="project-annotation-form"><h3>Edit annotation</h3><label>Text<textarea name="text" rows="5" maxlength="4000"></textarea></label><label>Tags <input name="tags" placeholder="research, question"></label><label>Linked artifact<select name="backlink">${backlinkOptions}</select></label><div class="project-annotation-colours"><label>Background<input type="color" name="background_colour"></label><label>Text colour<input type="color" name="text_colour"></label></div><label class="project-annotation-context"><input type="checkbox" name="transparent"> Transparent background</label><label class="project-annotation-context"><input type="checkbox" name="shadow"> Drop shadow</label><label class="project-annotation-context"><input type="checkbox" name="markdown"> Render Markdown</label><label class="project-annotation-context"><input type="checkbox" name="include_context"> Include in agent context</label><div class="project-form-actions"><button type="button" class="project-secondary-btn" data-cancel>Cancel</button><button class="project-primary-btn">Save annotation</button></div></form>`;
+    const form = overlay.querySelector('form');
+    form.elements.text.value = card.text || '';
+    form.elements.tags.value = (card.tags || []).join(', ');
+    form.elements.backlink.value = card.backlink || '';
+    form.elements.include_context.checked = !!card.include_context;
+    form.elements.background_colour.value = /^#[0-9a-f]{6}$/i.test(card.background_colour || '') ? card.background_colour : '#f9d85d';
+    form.elements.text_colour.value = /^#[0-9a-f]{6}$/i.test(card.text_colour || '') ? card.text_colour : '#f5f0ff';
+    form.elements.transparent.checked = card.transparent !== false;
+    form.elements.shadow.checked = !!card.shadow;
+    form.elements.markdown.checked = !!card.markdown;
+    form.querySelector('[data-cancel]').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      card.title = ''; card.text = form.elements.text.value.trim();
+      card.tags = form.elements.tags.value.split(',').map(v => v.trim().replace(/^#/, '')).filter(Boolean);
+      card.backlink = form.elements.backlink.value || null; card.include_context = form.elements.include_context.checked;
+      card.background_colour = form.elements.background_colour.value; card.text_colour = form.elements.text_colour.value;
+      card.transparent = form.elements.transparent.checked; card.shadow = form.elements.shadow.checked; card.markdown = form.elements.markdown.checked;
+      overlay.remove(); render(); persist();
+    });
+    document.body.appendChild(overlay);
+  };
+  const zoomReadout = shell.querySelector('[data-board-zoom-reset]');
+  const applyZoom = (next) => {
+    zoom = Math.min(1.5, Math.max(0.2, Math.round(next * 10) / 10));
+    board.zoom = zoom;
+    zoomReadout.textContent = `${Math.round(zoom * 100)}%`;
+    render(); persist();
+  };
+  shell.querySelector('[data-board-zoom-out]').addEventListener('click', () => applyZoom(zoom - 0.1));
+  shell.querySelector('[data-board-zoom-in]').addEventListener('click', () => applyZoom(zoom + 0.1));
+  zoomReadout.addEventListener('click', () => applyZoom(1));
+  const addArtifact = async artifact => {
+    if (board.cards.some(card => card.artifact_key === artifact.key)) { uiModule.showToast('That is already on this board.'); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(_projectId(project))}/artifacts/${encodeURIComponent(artifact.type)}/${encodeURIComponent(artifact.id)}`, {
+        method: 'POST', credentials: 'same-origin',
+      });
+      await _jsonOrThrow(res);
+      artifact.project_id = _projectId(project);
+    } catch (error) {
+      uiModule.showError(`Could not assign artifact to this project: ${error.message}`);
+      return;
+    }
+    const index = board.cards.length;
+    const cardId = window.crypto?.randomUUID?.() || `card-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    board.cards.push({ id: cardId, artifact_key: artifact.key, type: artifact.type, x: 70 + (index % 4) * 55, y: 70 + (index % 3) * 45, w: 230, h: 160, rotation: 0, colour: _defaultCardColour(artifact.type), z: index + 1 });
+    render(); persist();
+  };
+  const addAnnotation = () => {
+    const index = board.cards.length;
+    const id = window.crypto?.randomUUID?.() || `annotation-${Date.now()}`;
+    const card = { id, type: 'annotation', title: '', text: '', tags: [], backlink: null, include_context: false, transparent: true, shadow: false, markdown: true, text_colour: '#f5f0ff', background_colour: '#f9d85d', x: 100 + (index % 4) * 50, y: 100 + (index % 3) * 42, w: 260, h: 180, rotation: 0, z: index + 1 };
+    board.cards.push(card); render(); editAnnotation(card);
+  };
+  shell.querySelector('[data-board-add]').addEventListener('click', () => {
+    const tray = shell.querySelector('.project-board-tray');
+    tray.classList.toggle('hidden');
+    if (!tray.classList.contains('hidden')) {
+      const list = tray.querySelector('.project-board-picker-list');
+      list.innerHTML = '<button type="button" class="project-board-new-annotation">✎ New annotation</button>' + (artifacts.length ? '' : '<div class="project-board-picker-empty">Loading your things…</div>');
+      list.querySelector('.project-board-new-annotation').addEventListener('click', () => { addAnnotation(); tray.classList.add('hidden'); });
+      const available = artifacts.filter(artifact => (!artifact.project_id || artifact.project_id === _projectId(project)) && !board.cards.some(card => card.artifact_key === artifact.key));
+      if (!available.length) {
+        list.innerHTML = '<div class="project-board-picker-empty">Everything available is already on this board, or belongs to another project.</div>';
+      }
+      available.forEach(artifact => {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'project-board-picker-item';
+        button.innerHTML = `<span>${_cardIcon(artifact.type)}</span><span><b>${_escapeText(artifact.title)}</b><small>${_escapeText(artifact.type)}</small></span>`;
+        button.addEventListener('click', async () => { await addArtifact(artifact); tray.classList.add('hidden'); }); list.appendChild(button);
+      });
+    }
+  });
+  render();
+  _loadBoardArtifacts(sessions).then(async loaded => {
+    artifacts = loaded;
+    // Boards created before canonical artifact metadata existed still become
+    // real project context the first time they are opened.
+    await Promise.all(board.cards.map(async card => {
+      const artifact = _artifactFor(card, artifacts);
+      if (!artifact || artifact.project_id === _projectId(project)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(_projectId(project))}/artifacts/${encodeURIComponent(artifact.type)}/${encodeURIComponent(artifact.id)}`, { method: 'POST', credentials: 'same-origin' });
+        await _jsonOrThrow(res); artifact.project_id = _projectId(project);
+      } catch (_) { /* leave legacy card visible; a later explicit add can retry */ }
+    }));
+    render();
+  });
 }
 
 function _appendReadout(parent, label, value) {
@@ -413,25 +720,43 @@ export function renderProjectDashboard(project, sessions = []) {
   shell.innerHTML = `
     <div class="project-dashboard-header">
       <div>
-        <div class="project-kicker">Project</div>
+        <div class="project-kicker">Project board</div>
         <h2></h2>
         <p></p>
       </div>
-      <button type="button" class="project-secondary-btn" id="project-edit-toggle">Edit</button>
+      <div class="project-header-actions">
+        <button type="button" class="project-board-zoom-btn" data-board-zoom-out aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" class="project-board-zoom-readout" data-board-zoom-reset title="Reset zoom">100%</button>
+        <button type="button" class="project-board-zoom-btn" data-board-zoom-in aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" class="project-board-add-btn" data-project-chat aria-label="New project chat" title="New project chat">+</button>
+        <button type="button" class="project-board-add-btn project-board-agent-btn" data-project-agent aria-label="New project agent" title="New project agent">&#xE795;</button>
+        <button type="button" class="project-board-add-btn" data-board-add aria-label="Add existing artifact" title="Add existing artifact">☌</button>
+      </div>
+      <div class="project-edit-panel hidden"></div>
     </div>
-    <div class="project-readout"></div>
-    <div class="project-grid">
-      <article class="project-card">
-        <h3>Chats</h3>
-        <p class="project-card-meta"></p>
-        <div class="project-chat-links"></div>
-      </article>
-      <article class="project-card">
-        <h3>Worktrees</h3>
-        <p>Loading Git worktrees...</p>
-      </article>
+    <div class="project-board-wrap">
+      <div class="project-board" aria-label="Project board">
+        <div class="project-board-empty"><span>✦</span><strong>Make this project yours.</strong><p>Add chats, notes, tasks, and documents, then arrange them into a little constellation.</p></div>
+      </div>
+      <aside class="project-board-tray hidden">
+        <div class="project-board-tray-title">Add to board</div>
+        <div class="project-board-picker-list"></div>
+      </aside>
     </div>
-    <div class="project-edit-panel hidden"></div>
+    <div class="project-underboard">
+      <div class="project-readout"></div>
+      <div class="project-grid">
+        <article class="project-card">
+          <h3>Chats</h3>
+          <p class="project-card-meta"></p>
+          <div class="project-chat-links"></div>
+        </article>
+        <article class="project-card">
+          <h3>Worktrees</h3>
+          <p>Loading Git worktrees...</p>
+        </article>
+      </div>
+    </div>
   `;
   shell.querySelector('h2').textContent = _safeText(project.name, 'Untitled project');
   shell.querySelector('.project-dashboard-header p').textContent = _safeText(project.description, 'No description yet.');
@@ -460,6 +785,23 @@ export function renderProjectDashboard(project, sessions = []) {
     links.appendChild(empty);
   }
 
+  _mountProjectBoard(shell, project, sessions);
+  requestAnimationFrame(() => {
+    shell.querySelector('.project-board')?.scrollTo({ left: 0, top: 0 });
+    box.scrollTo({ top: 0 });
+  });
+
+  const startProjectChat = (agent) => {
+    const current = window.sessionModule?.getSessions?.().find(s => s.id === window.sessionModule?.getCurrentSessionId?.());
+    if (!current?.endpoint_url || !current?.model) {
+      uiModule.showError('Choose a model in a chat first, then create a project chat.'); return;
+    }
+    window.sessionModule?.createDirectChat?.(current.endpoint_url, current.model, current.endpoint_id, id);
+    if (agent) document.getElementById('mode-agent-btn')?.click();
+  };
+  shell.querySelector('[data-project-chat]').addEventListener('click', () => startProjectChat(false));
+  shell.querySelector('[data-project-agent]').addEventListener('click', () => startProjectChat(true));
+
   _mountWorktreePanel(shell.querySelector('.project-grid .project-card:nth-child(2)'), id);
 
   const editPanel = shell.querySelector('.project-edit-panel');
@@ -467,7 +809,8 @@ export function renderProjectDashboard(project, sessions = []) {
     const updated = await updateProject(id, payload);
     if (updated) renderProjectDashboard(updated, window.sessionModule?.getSessions?.() || sessions);
   }));
-  shell.querySelector('#project-edit-toggle').addEventListener('click', () => {
+  shell.querySelector('.project-dashboard-header > div:first-child').title = 'Double-click to edit project details';
+  shell.querySelector('.project-dashboard-header > div:first-child').addEventListener('dblclick', () => {
     editPanel.classList.toggle('hidden');
   });
 
@@ -496,16 +839,6 @@ export function initProjects() {
   document.getElementById('project-new-btn')?.addEventListener('click', (event) => {
     event.stopPropagation();
     showNewProjectDashboard();
-  });
-  document.getElementById('rail-projects')?.addEventListener('click', () => {
-    const sidebar = document.getElementById('sidebar');
-    const section = document.getElementById('projects-section');
-    if (sidebar) sidebar.classList.remove('hidden');
-    if (section) {
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      section.classList.remove('collapsed');
-    }
-    if (window.syncRailSide) window.syncRailSide();
   });
   renderProjectSidebar();
 }
