@@ -37,6 +37,10 @@ def test_browser_scope_allows_cookie_session_without_api_scope():
     browser_routes._require_browser_scope(_request(api_token=False), "browser:read")
 
 
+def test_owner_uses_real_token_owner_for_api_tokens():
+    assert browser_routes._owner(_request(api_token=True, owner="amber")) == "amber"
+
+
 def test_capture_screenshot_saves_image_and_sidecar(tmp_path, monkeypatch):
     monkeypatch.setattr(browser_routes, "CAPTURE_ROOT", str(tmp_path))
     monkeypatch.setattr(browser_routes, "get_current_user", lambda request: "alice")

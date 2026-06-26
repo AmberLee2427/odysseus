@@ -59,6 +59,8 @@ def _require_browser_scope(request: Request, scope: str = "browser:read") -> Non
 
 
 def _owner(request: Request) -> Optional[str]:
+    if getattr(request.state, "api_token", False):
+        return getattr(request.state, "api_token_owner", None)
     return get_current_user(request)
 
 
