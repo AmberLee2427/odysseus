@@ -71,12 +71,14 @@ def test_summarize_uses_browser_reasoning_model(monkeypatch):
         calls["owner"] = owner
         return "https://llm.test/v1/chat/completions", "browser-model", {"Authorization": "Bearer key"}
 
-    async def fake_llm(endpoint_url, model, messages, headers=None, timeout=None):
+    async def fake_llm(endpoint_url, model, messages, headers=None, timeout=None, max_retries=None, max_tokens=None):
         calls["endpoint_url"] = endpoint_url
         calls["model"] = model
         calls["messages"] = messages
         calls["headers"] = headers
         calls["timeout"] = timeout
+        calls["max_retries"] = max_retries
+        calls["max_tokens"] = max_tokens
         return "This page is about testing."
 
     monkeypatch.setattr(browser_routes, "resolve_endpoint", fake_resolve)
@@ -104,4 +106,6 @@ def test_summarize_uses_browser_reasoning_model(monkeypatch):
     assert calls["prefix"] == "browser_reasoning"
     assert calls["owner"] == "alice"
     assert calls["timeout"] == 77
+    assert calls["max_retries"] == 1
+    assert calls["max_tokens"] == 900
     assert "Important page text." in calls["messages"][1]["content"]

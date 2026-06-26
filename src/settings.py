@@ -144,7 +144,7 @@ DEFAULT_SETTINGS = {
     "browser_action_model": "",
     "browser_vision_endpoint_id": "",
     "browser_vision_model": "",
-    "browser_summary_timeout_seconds": 75,
+    "browser_summary_timeout_seconds": 65,
     "teacher_model": "",
     "teacher_enabled": False,
     # Skills: minimum self-reported confidence for an auto-written (LLM-authored)

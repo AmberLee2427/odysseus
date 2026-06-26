@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import os
@@ -20,6 +21,8 @@ from src.settings import load_settings
 
 MAX_PAGE_TEXT_CHARS = 60_000
 MAX_SELECTED_TEXT_CHARS = 20_000
+MAX_PAGE_PROMPT_CHARS = 20_000
+MAX_SELECTED_PROMPT_CHARS = 12_000
 MAX_SUMMARY_CHARS = 8_000
 MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024
 CAPTURE_ROOT = os.path.join("data", "browser_captures")
@@ -154,8 +157,8 @@ def setup_browser_routes() -> APIRouter:
             f"Instruction: {instruction}\n\n"
             f"Title: {_trim(page.title, 500)}\n"
             f"URL: {_trim(page.url, 4000)}\n\n"
-            f"Selected text:\n{_trim(page.selected_text, MAX_SELECTED_TEXT_CHARS)}\n\n"
-            f"Visible/readable page text:\n{_trim(page.text, MAX_PAGE_TEXT_CHARS)}"
+            f"Selected text:\n{_trim(page.selected_text, MAX_SELECTED_PROMPT_CHARS)}\n\n"
+            f"Visible/readable page text:\n{_trim(page.text, MAX_PAGE_PROMPT_CHARS)}"
         )
         messages = [
             {
@@ -170,15 +173,24 @@ def setup_browser_routes() -> APIRouter:
 
         from src.llm_core import llm_call_async
 
-        timeout = float(load_settings().get("browser_summary_timeout_seconds") or 75)
+        timeout = float(load_settings().get("browser_summary_timeout_seconds") or 65)
         try:
-            summary = await llm_call_async(
-                endpoint_url,
-                model,
-                messages,
-                headers=headers,
-                timeout=timeout,
+            summary = await asyncio.wait_for(
+                llm_call_async(
+                    endpoint_url,
+                    model,
+                    messages,
+                    headers=headers,
+                    timeout=timeout,
+                    max_retries=1,
+                    max_tokens=900,
+                ),
+                timeout=timeout + 5,
             )
+        except asyncio.TimeoutError as error:
+            raise HTTPException(504, "Browser summary timed out") from error
+        except HTTPException:
+            raise
         except Exception as error:
             raise HTTPException(502, "Browser summary model call failed") from error
         return {
