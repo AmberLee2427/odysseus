@@ -2,7 +2,8 @@ const DEFAULT_SETTINGS = {
   baseUrl: '',
   token: '',
   pageSummary: true,
-  screenshots: true
+  screenshots: true,
+  targetSessionId: ''
 };
 
 function trimBaseUrl(value) {
@@ -67,7 +68,7 @@ async function summarizeCurrentTab(instruction) {
   return odysseusFetch('/api/browser/summarize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ page, instruction: instruction || '' })
+    body: JSON.stringify({ page, instruction: instruction || '', session_id: settings.targetSessionId || '' })
   });
 }
 
@@ -96,12 +97,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         baseUrl: trimBaseUrl(message.settings && message.settings.baseUrl),
         token: String((message.settings && message.settings.token) || '').trim(),
         pageSummary: !!(message.settings && message.settings.pageSummary),
-        screenshots: !!(message.settings && message.settings.screenshots)
+        screenshots: !!(message.settings && message.settings.screenshots),
+        targetSessionId: String((message.settings && message.settings.targetSessionId) || '').trim()
       };
       await chrome.storage.sync.set(next);
       return next;
     }
     if (message.type === 'ping') return odysseusFetch('/api/browser/ping');
+    if (message.type === 'sessions') return odysseusFetch('/api/browser/sessions');
     if (message.type === 'summarize') return summarizeCurrentTab(message.instruction || '');
     if (message.type === 'screenshot') return saveScreenshot();
     throw new Error(`Unknown request: ${message.type}`);

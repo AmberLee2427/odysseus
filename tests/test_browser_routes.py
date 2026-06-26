@@ -50,14 +50,31 @@ class _FakeSessionManager:
         self.created = []
         self.saved = 0
         self.session = None
+        self.sessions = {}
 
     def create_session(self, **kwargs):
         self.created.append(kwargs)
         self.session = _FakeSession(kwargs["name"])
+        self.session.id = kwargs["session_id"]
+        self.session.model = kwargs["model"]
+        self.session.owner = kwargs.get("owner")
+        self.sessions[self.session.id] = self.session
         return self.session
 
     def save_sessions(self):
         self.saved += 1
+
+    def get_session(self, session_id):
+        if session_id not in self.sessions:
+            raise KeyError(session_id)
+        return self.sessions[session_id]
+
+    def get_sessions_for_user(self, owner):
+        return {
+            sid: session
+            for sid, session in self.sessions.items()
+            if getattr(session, "owner", None) == owner
+        }
 
 
 def test_browser_scope_requires_browser_read_for_api_tokens():
@@ -182,3 +199,67 @@ def test_summarize_saves_browser_summary_to_chat(monkeypatch):
     assert [msg.role for msg in manager.session.messages] == ["system", "user", "assistant"]
     assert "Page context for follow-up." in manager.session.messages[0].content
     assert manager.session.messages[2].content == "Saved summary."
+
+
+def test_browser_sessions_lists_owned_sessions():
+    manager = _FakeSessionManager()
+    alice = _FakeSession("Alice chat")
+    alice.id = "alice-chat"
+    alice.owner = "alice"
+    alice.model = "model-a"
+    alice.archived = False
+    bob = _FakeSession("Bob chat")
+    bob.id = "bob-chat"
+    bob.owner = "bob"
+    bob.model = "model-b"
+    bob.archived = False
+    manager.sessions = {alice.id: alice, bob.id: bob}
+
+    response = asyncio.run(_handler_with_session_manager("/api/browser/sessions", manager, method="GET")(
+        _request(api_token=True, scopes=["browser:read"]),
+    ))
+
+    assert response["sessions"] == [{"id": "alice-chat", "name": "Alice chat", "model": "model-a"}]
+
+
+def test_summarize_appends_to_existing_chat(monkeypatch):
+    def fake_resolve(prefix, owner=None):
+        return "https://llm.test/v1/chat/completions", "browser-model", {}
+
+    async def fake_llm(*args, **kwargs):
+        return "Appended summary."
+
+    monkeypatch.setattr(browser_routes, "resolve_endpoint", fake_resolve)
+    monkeypatch.setattr(browser_routes, "load_settings", lambda: {"browser_summary_timeout_seconds": 20})
+    monkeypatch.setattr(browser_routes, "get_current_user", lambda request: "alice")
+
+    import src.llm_core
+
+    monkeypatch.setattr(src.llm_core, "llm_call_async", fake_llm)
+    manager = _FakeSessionManager()
+    existing = _FakeSession("Existing chat")
+    existing.id = "existing"
+    existing.owner = "alice"
+    existing.model = "chat-model"
+    existing.archived = False
+    manager.sessions = {"existing": existing}
+    body = browser_routes.BrowserSummaryRequest(
+        page=browser_routes.BrowserPageContext(
+            title="Page",
+            url="https://example.test",
+            text="Existing chat context.",
+        ),
+        instruction="Add this page.",
+        session_id="existing",
+    )
+
+    response = asyncio.run(_handler_with_session_manager("/api/browser/summarize", manager)(
+        _request(api_token=True, scopes=["browser:read"]),
+        body,
+    ))
+
+    assert response["saved"] is True
+    assert response["appended"] is True
+    assert response["session_id"] == "existing"
+    assert manager.created == []
+    assert [msg.role for msg in existing.messages] == ["system", "user", "assistant"]

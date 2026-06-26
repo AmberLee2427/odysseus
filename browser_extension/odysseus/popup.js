@@ -4,6 +4,7 @@ const els = {
   pageSummary: document.getElementById('pageSummary'),
   screenshots: document.getElementById('screenshots'),
   instruction: document.getElementById('instruction'),
+  targetSession: document.getElementById('targetSession'),
   status: document.getElementById('status'),
   save: document.getElementById('save'),
   test: document.getElementById('test'),
@@ -27,7 +28,8 @@ function showSummaryResult(result) {
   if (result && result.saved && result.session_url) {
     const baseUrl = els.baseUrl.value.trim().replace(/\/+$/, '');
     const url = `${baseUrl}${result.session_url}`;
-    show(`Saved to Odysseus chat:\n${result.session_name || result.title || 'Browser summary'}\n${url}`);
+    const verb = result.appended ? 'Added to Odysseus chat' : 'Saved to Odysseus chat';
+    show(`${verb}:\n${result.session_name || result.title || 'Browser summary'}\n${url}`);
     return;
   }
   show((result && result.summary) || result);
@@ -60,8 +62,30 @@ function formSettings() {
     baseUrl: els.baseUrl.value,
     token: els.token.value,
     pageSummary: els.pageSummary.checked,
-    screenshots: els.screenshots.checked
+    screenshots: els.screenshots.checked,
+    targetSessionId: els.targetSession.value
   };
+}
+
+function renderSessions(sessions, selectedId) {
+  const current = selectedId || els.targetSession.value || '';
+  els.targetSession.innerHTML = '<option value="">New browser summary chat</option>';
+  (sessions || []).forEach((session) => {
+    const option = document.createElement('option');
+    option.value = session.id;
+    option.textContent = session.name || session.id;
+    els.targetSession.appendChild(option);
+  });
+  els.targetSession.value = Array.from(els.targetSession.options).some((option) => option.value === current) ? current : '';
+}
+
+async function refreshSessions(selectedId = '') {
+  try {
+    const data = await send('sessions');
+    renderSessions(data.sessions || [], selectedId);
+  } catch {
+    renderSessions([], selectedId);
+  }
 }
 
 async function load() {
@@ -71,6 +95,8 @@ async function load() {
     els.token.value = settings.token || '';
     els.pageSummary.checked = settings.pageSummary !== false;
     els.screenshots.checked = settings.screenshots !== false;
+    renderSessions([], settings.targetSessionId || '');
+    if (settings.baseUrl && settings.token) await refreshSessions(settings.targetSessionId || '');
     show('Ready.');
   } catch (error) {
     show(error.message, true);
@@ -82,6 +108,7 @@ els.save.addEventListener('click', async () => {
     try {
       showPending('Saving extension settings...');
       const settings = await send('settings:set', { settings: formSettings() });
+      await refreshSessions(settings.targetSessionId || '');
       show({ saved: true, baseUrl: settings.baseUrl, pageSummary: settings.pageSummary, screenshots: settings.screenshots });
     } catch (error) {
       show(error.message, true);
@@ -95,7 +122,9 @@ els.test.addEventListener('click', async () => {
       showPending('Testing Odysseus connection...');
       await send('settings:set', { settings: formSettings() });
       showPending('Waiting for Odysseus...');
-      show(await send('ping'));
+      const ping = await send('ping');
+      await refreshSessions(els.targetSession.value);
+      show(ping);
     } catch (error) {
       show(error.message, true);
     }

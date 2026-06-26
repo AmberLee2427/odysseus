@@ -40,6 +40,7 @@ label {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid #c8ccd4;
@@ -48,6 +49,10 @@ textarea {
   background: #fff;
   color: #202124;
   font: inherit;
+}
+
+select {
+  min-width: 0;
 }
 
 textarea {

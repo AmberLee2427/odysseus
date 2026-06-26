@@ -44,6 +44,7 @@ class BrowserPageContext(BaseModel):
 class BrowserSummaryRequest(BaseModel):
     page: BrowserPageContext
     instruction: str = Field("", max_length=1000)
+    session_id: str = Field("", max_length=100)
 
 
 class BrowserScreenshotRequest(BaseModel):
@@ -83,6 +84,13 @@ def _session_title(page: BrowserPageContext) -> str:
     if len(title) > 70:
         title = title[:67].rstrip() + "..."
     return f"Browser: {title}"
+
+
+def _verify_session_owner(session, owner: Optional[str]) -> None:
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if owner and getattr(session, "owner", None) != owner:
+        raise HTTPException(404, "Session not found")
 
 
 def _decode_image_data_url(data_url: str) -> tuple[str, bytes]:
@@ -147,6 +155,26 @@ def setup_browser_routes(session_manager=None) -> APIRouter:
             },
         }
 
+    @router.get("/sessions")
+    async def sessions(request: Request):
+        _require_browser_scope(request, "browser:read")
+        owner = _owner(request)
+        if session_manager is None:
+            return {"sessions": []}
+        rows = session_manager.get_sessions_for_user(owner) if owner else {}
+        out = []
+        for session in rows.values():
+            name = (getattr(session, "name", "") or "").strip()
+            if not name or name in {"Nobody", "Incognito"} or getattr(session, "archived", False):
+                continue
+            out.append({
+                "id": session.id,
+                "name": name,
+                "model": session.model or "",
+            })
+        out.sort(key=lambda row: row["name"].lower())
+        return {"sessions": out[:100]}
+
     @router.post("/summarize")
     async def summarize(request: Request, body: BrowserSummaryRequest):
         _require_browser_scope(request, "browser:read")
@@ -203,20 +231,31 @@ def setup_browser_routes(session_manager=None) -> APIRouter:
             raise HTTPException(502, "Browser summary model call failed") from error
         session_payload = {}
         if session_manager is not None:
-            session_id = str(uuid.uuid4())
-            new_session = session_manager.create_session(
-                session_id=session_id,
-                name=_session_title(page),
-                endpoint_url=endpoint_url,
-                model=model,
-                rag=False,
-                owner=owner,
-            )
-            if headers:
-                new_session.headers = dict(headers)
-                session_manager.save_sessions()
-
             from core.models import ChatMessage
+
+            requested_session_id = (body.session_id or "").strip()
+            if requested_session_id:
+                try:
+                    new_session = session_manager.get_session(requested_session_id)
+                except KeyError as error:
+                    raise HTTPException(404, "Session not found") from error
+                _verify_session_owner(new_session, owner)
+                session_id = requested_session_id
+                appended = True
+            else:
+                session_id = str(uuid.uuid4())
+                new_session = session_manager.create_session(
+                    session_id=session_id,
+                    name=_session_title(page),
+                    endpoint_url=endpoint_url,
+                    model=model,
+                    rag=False,
+                    owner=owner,
+                )
+                if headers:
+                    new_session.headers = dict(headers)
+                    session_manager.save_sessions()
+                appended = False
 
             context = (
                 "Browser page context for follow-up questions.\n\n"
@@ -247,6 +286,7 @@ def setup_browser_routes(session_manager=None) -> APIRouter:
                 pass
             session_payload = {
                 "saved": True,
+                "appended": appended,
                 "session_id": session_id,
                 "session_url": f"/#session-{session_id}",
                 "session_name": new_session.name,
