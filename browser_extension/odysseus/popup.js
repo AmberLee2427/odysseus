@@ -23,6 +23,16 @@ function showPending(message) {
   els.status.textContent = message;
 }
 
+function showSummaryResult(result) {
+  if (result && result.saved && result.session_url) {
+    const baseUrl = els.baseUrl.value.trim().replace(/\/+$/, '');
+    const url = `${baseUrl}${result.session_url}`;
+    show(`Saved to Odysseus chat:\n${result.session_name || result.title || 'Browser summary'}\n${url}`);
+    return;
+  }
+  show((result && result.summary) || result);
+}
+
 async function withBusy(button, label, task) {
   const original = button.textContent;
   const controls = [els.save, els.test, els.summarize, els.screenshot];
@@ -97,9 +107,9 @@ els.summarize.addEventListener('click', async () => {
     try {
       showPending('Reading the active tab...');
       await send('settings:set', { settings: formSettings() });
-      showPending('Sending page text to Odysseus...');
+      showPending('Saving browser summary to Odysseus...');
       const result = await send('summarize', { instruction: els.instruction.value });
-      show(result.summary || result);
+      showSummaryResult(result);
     } catch (error) {
       show(error.message, true);
     }

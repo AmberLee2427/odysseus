@@ -27,6 +27,39 @@ def _handler(path, method="POST"):
     raise AssertionError(f"Route not found: {method} {path}")
 
 
+def _handler_with_session_manager(path, session_manager, method="POST"):
+    router = browser_routes.setup_browser_routes(session_manager)
+    for route in router.routes:
+        if getattr(route, "path", "") == path and method in getattr(route, "methods", set()):
+            return route.endpoint
+    raise AssertionError(f"Route not found: {method} {path}")
+
+
+class _FakeSession:
+    def __init__(self, name):
+        self.name = name
+        self.headers = {}
+        self.messages = []
+
+    def add_message(self, message):
+        self.messages.append(message)
+
+
+class _FakeSessionManager:
+    def __init__(self):
+        self.created = []
+        self.saved = 0
+        self.session = None
+
+    def create_session(self, **kwargs):
+        self.created.append(kwargs)
+        self.session = _FakeSession(kwargs["name"])
+        return self.session
+
+    def save_sessions(self):
+        self.saved += 1
+
+
 def test_browser_scope_requires_browser_read_for_api_tokens():
     with pytest.raises(HTTPException) as exc:
         browser_routes._require_browser_scope(_request(api_token=True, scopes=["chat"]), "browser:read")
@@ -109,3 +142,43 @@ def test_summarize_uses_browser_reasoning_model(monkeypatch):
     assert calls["max_retries"] == 1
     assert calls["max_tokens"] == 900
     assert "Important page text." in calls["messages"][1]["content"]
+
+
+def test_summarize_saves_browser_summary_to_chat(monkeypatch):
+    def fake_resolve(prefix, owner=None):
+        return "https://llm.test/v1/chat/completions", "browser-model", {"Authorization": "Bearer key"}
+
+    async def fake_llm(*args, **kwargs):
+        return "Saved summary."
+
+    monkeypatch.setattr(browser_routes, "resolve_endpoint", fake_resolve)
+    monkeypatch.setattr(browser_routes, "load_settings", lambda: {"browser_summary_timeout_seconds": 20})
+    monkeypatch.setattr(browser_routes, "get_current_user", lambda request: "alice")
+
+    import src.llm_core
+
+    monkeypatch.setattr(src.llm_core, "llm_call_async", fake_llm)
+    manager = _FakeSessionManager()
+    body = browser_routes.BrowserSummaryRequest(
+        page=browser_routes.BrowserPageContext(
+            title="A Very Interesting Browser Page",
+            url="https://example.test/story",
+            text="Page context for follow-up.",
+        ),
+        instruction="Summarize this page.",
+    )
+
+    response = asyncio.run(_handler_with_session_manager("/api/browser/summarize", manager)(
+        _request(api_token=True, scopes=["browser:read"]),
+        body,
+    ))
+
+    assert response["saved"] is True
+    assert response["session_id"]
+    assert response["session_url"] == f"/#session-{response['session_id']}"
+    assert manager.created[0]["owner"] == "alice"
+    assert manager.created[0]["model"] == "browser-model"
+    assert manager.session.headers == {"Authorization": "Bearer key"}
+    assert [msg.role for msg in manager.session.messages] == ["system", "user", "assistant"]
+    assert "Page context for follow-up." in manager.session.messages[0].content
+    assert manager.session.messages[2].content == "Saved summary."

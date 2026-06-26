@@ -751,7 +751,7 @@ from companion import setup_companion_routes
 app.include_router(setup_companion_routes())
 
 from routes.browser_routes import setup_browser_routes
-app.include_router(setup_browser_routes())
+app.include_router(setup_browser_routes(session_manager))
 
 # ========= ROUTES (kept in app.py) =========
 

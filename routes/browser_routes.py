@@ -77,6 +77,14 @@ def _trim(value: str, limit: int) -> str:
     return value if len(value) <= limit else value[:limit] + "\n\n[truncated]"
 
 
+def _session_title(page: BrowserPageContext) -> str:
+    title = (page.title or page.url or "Browser page").strip()
+    title = re.sub(r"\s+", " ", title)
+    if len(title) > 70:
+        title = title[:67].rstrip() + "..."
+    return f"Browser: {title}"
+
+
 def _decode_image_data_url(data_url: str) -> tuple[str, bytes]:
     match = _DATA_URL_RE.fullmatch(data_url or "")
     if not match:
@@ -112,7 +120,7 @@ def _browser_model_status(owner: Optional[str]) -> dict:
     return status
 
 
-def setup_browser_routes() -> APIRouter:
+def setup_browser_routes(session_manager=None) -> APIRouter:
     router = APIRouter(prefix="/api/browser", tags=["browser"])
 
     @router.get("/ping")
@@ -193,11 +201,62 @@ def setup_browser_routes() -> APIRouter:
             raise
         except Exception as error:
             raise HTTPException(502, "Browser summary model call failed") from error
+        session_payload = {}
+        if session_manager is not None:
+            session_id = str(uuid.uuid4())
+            new_session = session_manager.create_session(
+                session_id=session_id,
+                name=_session_title(page),
+                endpoint_url=endpoint_url,
+                model=model,
+                rag=False,
+                owner=owner,
+            )
+            if headers:
+                new_session.headers = dict(headers)
+                session_manager.save_sessions()
+
+            from core.models import ChatMessage
+
+            context = (
+                "Browser page context for follow-up questions.\n\n"
+                f"Title: {page.title or '(untitled)'}\n"
+                f"URL: {page.url or '(unknown)'}\n\n"
+                f"Captured page text:\n{_trim(text, MAX_PAGE_PROMPT_CHARS)}"
+            )
+            new_session.add_message(ChatMessage(
+                role="system",
+                content=context,
+                metadata={"source": "browser_companion", "url": page.url},
+            ))
+            new_session.add_message(ChatMessage(
+                role="user",
+                content=instruction,
+                metadata={"source": "browser_companion", "url": page.url},
+            ))
+            new_session.add_message(ChatMessage(
+                role="assistant",
+                content=summary or "",
+                metadata={"source": "browser_companion", "url": page.url},
+            ))
+            session_manager.save_sessions()
+            try:
+                from src.event_bus import fire_event
+                fire_event("session_created", owner)
+            except Exception:
+                pass
+            session_payload = {
+                "saved": True,
+                "session_id": session_id,
+                "session_url": f"/#session-{session_id}",
+                "session_name": new_session.name,
+            }
         return {
             "summary": _trim(summary or "", MAX_SUMMARY_CHARS),
             "model": model,
             "url": page.url,
             "title": page.title,
+            **session_payload,
         }
 
     @router.post("/captures/screenshot")
