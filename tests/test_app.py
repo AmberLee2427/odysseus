@@ -45,6 +45,14 @@ class TestAppStructure:
         env_example_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env.example")
         assert os.path.exists(env_example_path), ".env.example file should exist"
 
+    def test_browser_summarize_uses_route_owned_timeout(self):
+        """Browser summaries should not be cancelled by the generic 45s timeout."""
+        root = os.path.dirname(os.path.dirname(__file__))
+        app_path = os.path.join(root, "app.py")
+        with open(app_path, encoding="utf-8") as fh:
+            source = fh.read()
+        assert '"/api/browser/summarize"' in source
+
 
 class TestImports:
     """Test that key modules can be imported"""

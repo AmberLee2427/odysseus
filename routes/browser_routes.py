@@ -170,14 +170,17 @@ def setup_browser_routes() -> APIRouter:
 
         from src.llm_core import llm_call_async
 
-        timeout = float(load_settings().get("browser_summary_timeout_seconds") or 120)
-        summary = await llm_call_async(
-            endpoint_url,
-            model,
-            messages,
-            headers=headers,
-            timeout=timeout,
-        )
+        timeout = float(load_settings().get("browser_summary_timeout_seconds") or 75)
+        try:
+            summary = await llm_call_async(
+                endpoint_url,
+                model,
+                messages,
+                headers=headers,
+                timeout=timeout,
+            )
+        except Exception as error:
+            raise HTTPException(502, "Browser summary model call failed") from error
         return {
             "summary": _trim(summary or "", MAX_SUMMARY_CHARS),
             "model": model,
