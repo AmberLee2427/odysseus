@@ -80,6 +80,11 @@ button:hover {
   background: #eef2f8;
 }
 
+button:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
+
 .actions button {
   flex: 1;
 }
@@ -99,4 +104,20 @@ pre {
 pre.error {
   border-color: #c84646;
   color: #9b1c1c;
+}
+
+pre.pending {
+  border-color: #6f85b8;
+  color: #324b85;
+}
+
+body.busy pre.pending::after {
+  content: "...";
+  display: inline-block;
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
 }

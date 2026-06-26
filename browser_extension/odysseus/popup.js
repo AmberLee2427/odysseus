@@ -13,7 +13,29 @@ const els = {
 
 function show(value, isError = false) {
   els.status.classList.toggle('error', isError);
+  els.status.classList.toggle('pending', false);
   els.status.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function showPending(message) {
+  els.status.classList.remove('error');
+  els.status.classList.add('pending');
+  els.status.textContent = message;
+}
+
+async function withBusy(button, label, task) {
+  const original = button.textContent;
+  const controls = [els.save, els.test, els.summarize, els.screenshot];
+  controls.forEach((control) => { control.disabled = true; });
+  button.textContent = label;
+  document.body.classList.add('busy');
+  try {
+    return await task();
+  } finally {
+    button.textContent = original;
+    controls.forEach((control) => { control.disabled = false; });
+    document.body.classList.remove('busy');
+  }
 }
 
 function send(type, payload = {}) {
@@ -46,40 +68,55 @@ async function load() {
 }
 
 els.save.addEventListener('click', async () => {
-  try {
-    const settings = await send('settings:set', { settings: formSettings() });
-    show({ saved: true, baseUrl: settings.baseUrl, pageSummary: settings.pageSummary, screenshots: settings.screenshots });
-  } catch (error) {
-    show(error.message, true);
-  }
+  await withBusy(els.save, 'Saving...', async () => {
+    try {
+      showPending('Saving extension settings...');
+      const settings = await send('settings:set', { settings: formSettings() });
+      show({ saved: true, baseUrl: settings.baseUrl, pageSummary: settings.pageSummary, screenshots: settings.screenshots });
+    } catch (error) {
+      show(error.message, true);
+    }
+  });
 });
 
 els.test.addEventListener('click', async () => {
-  try {
-    await send('settings:set', { settings: formSettings() });
-    show(await send('ping'));
-  } catch (error) {
-    show(error.message, true);
-  }
+  await withBusy(els.test, 'Testing...', async () => {
+    try {
+      showPending('Testing Odysseus connection...');
+      await send('settings:set', { settings: formSettings() });
+      showPending('Waiting for Odysseus...');
+      show(await send('ping'));
+    } catch (error) {
+      show(error.message, true);
+    }
+  });
 });
 
 els.summarize.addEventListener('click', async () => {
-  try {
-    await send('settings:set', { settings: formSettings() });
-    const result = await send('summarize', { instruction: els.instruction.value });
-    show(result.summary || result);
-  } catch (error) {
-    show(error.message, true);
-  }
+  await withBusy(els.summarize, 'Summarizing...', async () => {
+    try {
+      showPending('Reading the active tab...');
+      await send('settings:set', { settings: formSettings() });
+      showPending('Sending page text to Odysseus...');
+      const result = await send('summarize', { instruction: els.instruction.value });
+      show(result.summary || result);
+    } catch (error) {
+      show(error.message, true);
+    }
+  });
 });
 
 els.screenshot.addEventListener('click', async () => {
-  try {
-    await send('settings:set', { settings: formSettings() });
-    show(await send('screenshot'));
-  } catch (error) {
-    show(error.message, true);
-  }
+  await withBusy(els.screenshot, 'Saving...', async () => {
+    try {
+      showPending('Capturing visible tab...');
+      await send('settings:set', { settings: formSettings() });
+      showPending('Saving screenshot to Odysseus...');
+      show(await send('screenshot'));
+    } catch (error) {
+      show(error.message, true);
+    }
+  });
 });
 
 load();
