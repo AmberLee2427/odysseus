@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Odysseus Browser Companion",
+  "description": "Share browser context, page summaries, and screenshots with Odysseus.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Odysseus"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

@@ -191,6 +191,11 @@ def test_create_token_attributes_owner_hashes_secret_and_returns_raw_once(monkey
     invalidator.assert_called_once()
 
 
+def test_browser_companion_profile_includes_browser_scopes(token_routes_mod):
+    scopes = token_routes_mod._normalize_scopes(profile="browser_companion")
+    assert scopes == ["browser:read", "browser:write", "chat"]
+
+
 # ---------------------------------------------------------------------------
 # 3. GET /api/tokens — safe display fields only, no hash or raw token
 # ---------------------------------------------------------------------------

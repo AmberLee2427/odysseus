@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Odysseus</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Odysseus</h1>
+        <button id="test" type="button">Test</button>
+      </header>
+
+      <label>
+        <span>Server</span>
+        <input id="baseUrl" type="url" placeholder="https://odysseus.example.com">
+      </label>
+
+      <label>
+        <span>Browser token</span>
+        <input id="token" type="password" placeholder="ody_...">
+      </label>
+
+      <section class="toggles">
+        <label class="check">
+          <input id="pageSummary" type="checkbox">
+          <span>Page summaries</span>
+        </label>
+        <label class="check">
+          <input id="screenshots" type="checkbox">
+          <span>Screenshots</span>
+        </label>
+      </section>
+
+      <label>
+        <span>Instruction</span>
+        <textarea id="instruction" rows="2" placeholder="Summarize the page for me."></textarea>
+      </label>
+
+      <div class="actions">
+        <button id="save" type="button">Save</button>
+        <button id="summarize" type="button">Summarize</button>
+        <button id="screenshot" type="button">Screenshot</button>
+      </div>
+
+      <pre id="status" aria-live="polite"></pre>
+    </main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

@@ -134,6 +134,17 @@ DEFAULT_SETTINGS = {
     # Ordered fallback chain for the Utility model (summarization, naming,
     # tidy actions, etc.).
     "utility_model_fallbacks": [],
+    # Browser companion models. Reasoning handles page summaries/extraction,
+    # action is reserved for browser-control planning, and vision is used for
+    # screenshot/image understanding. Unset values fall back through Utility
+    # and then Default.
+    "browser_reasoning_endpoint_id": "",
+    "browser_reasoning_model": "",
+    "browser_action_endpoint_id": "",
+    "browser_action_model": "",
+    "browser_vision_endpoint_id": "",
+    "browser_vision_model": "",
+    "browser_summary_timeout_seconds": 120,
     "teacher_model": "",
     "teacher_enabled": False,
     # Skills: minimum self-reported confidence for an auto-written (LLM-authored)
