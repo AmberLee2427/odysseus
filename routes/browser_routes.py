@@ -26,6 +26,17 @@ MAX_SELECTED_PROMPT_CHARS = 12_000
 MAX_SUMMARY_CHARS = 8_000
 MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024
 CAPTURE_ROOT = os.path.join("data", "browser_captures")
+DEFAULT_BROWSER_THEME = {
+    "name": "dark",
+    "colors": {
+        "bg": "#282c34",
+        "fg": "#9cdef2",
+        "panel": "#111111",
+        "border": "#355a66",
+        "red": "#e06c75",
+    },
+}
+THEME_COLOR_KEYS = ("bg", "fg", "panel", "border", "red")
 
 _DATA_URL_RE = re.compile(
     r"^data:image/(?P<kind>png|jpe?g|webp);base64,(?P<data>[a-z0-9+/=\s]+)$",
@@ -128,6 +139,31 @@ def _browser_model_status(owner: Optional[str]) -> dict:
     return status
 
 
+def _load_user_prefs(owner: Optional[str]) -> dict:
+    from routes.prefs_routes import _load_for_user
+
+    return _load_for_user(owner)
+
+
+def _browser_theme(owner: Optional[str]) -> dict:
+    try:
+        prefs = _load_user_prefs(owner)
+    except Exception:
+        prefs = {}
+    theme = prefs.get("theme") if isinstance(prefs, dict) else None
+    colors = theme.get("colors") if isinstance(theme, dict) else None
+    if not isinstance(colors, dict):
+        return DEFAULT_BROWSER_THEME
+
+    merged = dict(DEFAULT_BROWSER_THEME["colors"])
+    for key in THEME_COLOR_KEYS:
+        value = colors.get(key)
+        if isinstance(value, str) and value.strip():
+            merged[key] = value.strip()
+    name = theme.get("name") if isinstance(theme.get("name"), str) else DEFAULT_BROWSER_THEME["name"]
+    return {"name": name, "colors": merged}
+
+
 def setup_browser_routes(session_manager=None) -> APIRouter:
     router = APIRouter(prefix="/api/browser", tags=["browser"])
 
@@ -153,6 +189,16 @@ def setup_browser_routes(session_manager=None) -> APIRouter:
                 "page_actions": False,
                 "overleaf_adapter": False,
             },
+        }
+
+    @router.get("/theme")
+    async def theme(request: Request):
+        _require_browser_scope(request, "browser:read")
+        owner = _owner(request)
+        return {
+            "ok": True,
+            "owner": owner,
+            "theme": _browser_theme(owner),
         }
 
     @router.get("/sessions")

@@ -104,6 +104,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return next;
     }
     if (message.type === 'ping') return odysseusFetch('/api/browser/ping');
+    if (message.type === 'theme') return odysseusFetch('/api/browser/theme');
     if (message.type === 'sessions') return odysseusFetch('/api/browser/sessions');
     if (message.type === 'summarize') return summarizeCurrentTab(message.instruction || '');
     if (message.type === 'screenshot') return saveScreenshot();

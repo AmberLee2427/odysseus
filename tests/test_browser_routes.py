@@ -222,6 +222,34 @@ def test_browser_sessions_lists_owned_sessions():
     assert response["sessions"] == [{"id": "alice-chat", "name": "Alice chat", "model": "model-a"}]
 
 
+def test_browser_theme_uses_token_owner_prefs(monkeypatch):
+    def fake_load_user_prefs(owner):
+        assert owner == "alice"
+        return {
+            "theme": {
+                "name": "paper-boat",
+                "colors": {
+                    "bg": "#101820",
+                    "fg": "#f2f2f2",
+                    "panel": "#17222e",
+                    "border": "#70a0af",
+                    "red": "#ff6b6b",
+                },
+            }
+        }
+
+    monkeypatch.setattr(browser_routes, "_load_user_prefs", fake_load_user_prefs)
+
+    response = asyncio.run(_handler("/api/browser/theme", method="GET")(
+        _request(api_token=True, scopes=["browser:read"]),
+    ))
+
+    assert response["owner"] == "alice"
+    assert response["theme"]["name"] == "paper-boat"
+    assert response["theme"]["colors"]["bg"] == "#101820"
+    assert response["theme"]["colors"]["red"] == "#ff6b6b"
+
+
 def test_summarize_appends_to_existing_chat(monkeypatch):
     def fake_resolve(prefix, owner=None):
         return "https://llm.test/v1/chat/completions", "browser-model", {}

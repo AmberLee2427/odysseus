@@ -35,6 +35,31 @@ function showSummaryResult(result) {
   show((result && result.summary) || result);
 }
 
+function setThemeVar(name, value) {
+  if (typeof value === 'string' && value.trim()) {
+    document.documentElement.style.setProperty(name, value.trim());
+  }
+}
+
+function applyTheme(theme) {
+  const colors = theme && theme.colors;
+  if (!colors) return;
+  setThemeVar('--ody-bg', colors.bg);
+  setThemeVar('--ody-fg', colors.fg);
+  setThemeVar('--ody-panel', colors.panel);
+  setThemeVar('--ody-border', colors.border);
+  setThemeVar('--ody-accent', colors.red || colors.accent);
+}
+
+async function refreshTheme() {
+  try {
+    const data = await send('theme');
+    applyTheme(data.theme);
+  } catch {
+    // The popup has a local fallback theme until the extension is configured.
+  }
+}
+
 async function withBusy(button, label, task) {
   const original = button.textContent;
   const controls = [els.save, els.test, els.summarize, els.screenshot];
@@ -96,7 +121,10 @@ async function load() {
     els.pageSummary.checked = settings.pageSummary !== false;
     els.screenshots.checked = settings.screenshots !== false;
     renderSessions([], settings.targetSessionId || '');
-    if (settings.baseUrl && settings.token) await refreshSessions(settings.targetSessionId || '');
+    if (settings.baseUrl && settings.token) {
+      await refreshTheme();
+      await refreshSessions(settings.targetSessionId || '');
+    }
     show('Ready.');
   } catch (error) {
     show(error.message, true);
@@ -108,6 +136,7 @@ els.save.addEventListener('click', async () => {
     try {
       showPending('Saving extension settings...');
       const settings = await send('settings:set', { settings: formSettings() });
+      await refreshTheme();
       await refreshSessions(settings.targetSessionId || '');
       show({ saved: true, baseUrl: settings.baseUrl, pageSummary: settings.pageSummary, screenshots: settings.screenshots });
     } catch (error) {
@@ -123,6 +152,7 @@ els.test.addEventListener('click', async () => {
       await send('settings:set', { settings: formSettings() });
       showPending('Waiting for Odysseus...');
       const ping = await send('ping');
+      await refreshTheme();
       await refreshSessions(els.targetSession.value);
       show(ping);
     } catch (error) {
