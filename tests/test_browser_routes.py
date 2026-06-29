@@ -291,3 +291,82 @@ def test_summarize_appends_to_existing_chat(monkeypatch):
     assert response["session_id"] == "existing"
     assert manager.created == []
     assert [msg.role for msg in existing.messages] == ["system", "user", "assistant"]
+
+
+def test_overleaf_context_saves_to_new_chat(monkeypatch):
+    def fake_resolve(prefix, owner=None):
+        assert prefix == "browser_reasoning"
+        assert owner == "alice"
+        return "https://llm.test/v1/chat/completions", "browser-model", {"Authorization": "Bearer key"}
+
+    monkeypatch.setattr(browser_routes, "resolve_endpoint", fake_resolve)
+    monkeypatch.setattr(browser_routes, "get_current_user", lambda request: "alice")
+
+    manager = _FakeSessionManager()
+    body = browser_routes.BrowserOverleafContextRequest(
+        context=browser_routes.BrowserOverleafContext(
+            project_id="68768ebaca76a90da8368215",
+            project_title="Paper Draft",
+            file_name="main.tex",
+            editor_kind="codemirror",
+            url="https://www.overleaf.com/project/68768ebaca76a90da8368215",
+            text="\\section{Introduction}\nHello Overleaf.",
+        )
+    )
+
+    response = asyncio.run(_handler_with_session_manager("/api/browser/overleaf/context", manager)(
+        _request(api_token=True, scopes=["browser:read"]),
+        body,
+    ))
+
+    assert response["saved"] is True
+    assert response["appended"] is False
+    assert response["session_url"] == f"/#session-{response['session_id']}"
+    assert manager.created[0]["name"] == "Overleaf: Paper Draft / main.tex"
+    assert manager.created[0]["owner"] == "alice"
+    assert manager.created[0]["model"] == "browser-model"
+    assert manager.session.headers == {"Authorization": "Bearer key"}
+    assert [msg.role for msg in manager.session.messages] == ["system", "user"]
+    assert "Project ID: 68768ebaca76a90da8368215" in manager.session.messages[0].content
+    assert "\\section{Introduction}" in manager.session.messages[0].content
+    assert manager.session.messages[0].metadata["kind"] == "overleaf"
+    assert manager.session.messages[0].metadata["file_name"] == "main.tex"
+
+
+def test_overleaf_context_appends_to_existing_chat(monkeypatch):
+    monkeypatch.setattr(browser_routes, "resolve_endpoint", lambda *args, **kwargs: ("", "", {}))
+    monkeypatch.setattr(browser_routes, "get_current_user", lambda request: "alice")
+
+    manager = _FakeSessionManager()
+    existing = _FakeSession("Existing chat")
+    existing.id = "existing"
+    existing.owner = "alice"
+    existing.model = "chat-model"
+    existing.archived = False
+    manager.sessions = {"existing": existing}
+    body = browser_routes.BrowserOverleafContextRequest(
+        context=browser_routes.BrowserOverleafContext(
+            project_id="68768ebaca76a90da8368215",
+            project_title="Paper Draft",
+            file_name="main.tex",
+            url="https://www.overleaf.com/project/68768ebaca76a90da8368215",
+            selected_text="Important selected paragraph.",
+            text="Full editor text.",
+            warning="Only visible editor lines were available from the Overleaf tab.",
+        ),
+        session_id="existing",
+    )
+
+    response = asyncio.run(_handler_with_session_manager("/api/browser/overleaf/context", manager)(
+        _request(api_token=True, scopes=["browser:read"]),
+        body,
+    ))
+
+    assert response["saved"] is True
+    assert response["appended"] is True
+    assert response["session_id"] == "existing"
+    assert manager.created == []
+    assert [msg.role for msg in existing.messages] == ["system", "user"]
+    assert "Captured scope: selected text" in existing.messages[0].content
+    assert "Important selected paragraph." in existing.messages[0].content
+    assert "Only visible editor lines" in response["warning"]

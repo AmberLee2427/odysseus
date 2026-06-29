@@ -3,6 +3,7 @@ const DEFAULT_SETTINGS = {
   token: '',
   pageSummary: true,
   screenshots: true,
+  overleaf: true,
   targetSessionId: ''
 };
 
@@ -55,6 +56,7 @@ async function activeTab() {
 async function extractPage(tabId) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
+    world: 'MAIN',
     files: ['content.js']
   });
   return result;
@@ -69,6 +71,28 @@ async function summarizeCurrentTab(instruction) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ page, instruction: instruction || '', session_id: settings.targetSessionId || '' })
+  });
+}
+
+async function captureOverleafContext() {
+  const settings = await getSettings();
+  if (!settings.overleaf) throw new Error('Overleaf capability is off.');
+  const tab = await activeTab();
+  const page = await extractPage(tab.id);
+  const overleaf = page && page.overleaf;
+  if (!overleaf || !overleaf.project_id) {
+    throw new Error('Open an Overleaf project tab first.');
+  }
+  if (!overleaf.text && !overleaf.selected_text) {
+    throw new Error('Could not read Overleaf editor text. Click inside the editor, then try again.');
+  }
+  return odysseusFetch('/api/browser/overleaf/context', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      context: overleaf,
+      session_id: settings.targetSessionId || ''
+    })
   });
 }
 
@@ -98,6 +122,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         token: String((message.settings && message.settings.token) || '').trim(),
         pageSummary: !!(message.settings && message.settings.pageSummary),
         screenshots: !!(message.settings && message.settings.screenshots),
+        overleaf: !!(message.settings && message.settings.overleaf),
         targetSessionId: String((message.settings && message.settings.targetSessionId) || '').trim()
       };
       await chrome.storage.sync.set(next);
@@ -107,6 +132,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'theme') return odysseusFetch('/api/browser/theme');
     if (message.type === 'sessions') return odysseusFetch('/api/browser/sessions');
     if (message.type === 'summarize') return summarizeCurrentTab(message.instruction || '');
+    if (message.type === 'overleaf:capture') return captureOverleafContext();
     if (message.type === 'screenshot') return saveScreenshot();
     throw new Error(`Unknown request: ${message.type}`);
   })()

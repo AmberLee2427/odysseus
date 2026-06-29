@@ -9,7 +9,7 @@ import os
 import re
 import time
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -23,6 +23,8 @@ MAX_PAGE_TEXT_CHARS = 60_000
 MAX_SELECTED_TEXT_CHARS = 20_000
 MAX_PAGE_PROMPT_CHARS = 20_000
 MAX_SELECTED_PROMPT_CHARS = 12_000
+MAX_OVERLEAF_TEXT_CHARS = 120_000
+MAX_OVERLEAF_CONTEXT_CHARS = 40_000
 MAX_SUMMARY_CHARS = 8_000
 MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024
 CAPTURE_ROOT = os.path.join("data", "browser_captures")
@@ -64,6 +66,24 @@ class BrowserScreenshotRequest(BaseModel):
     data_url: str = Field(..., max_length=MAX_SCREENSHOT_BYTES * 2)
 
 
+class BrowserOverleafContext(BaseModel):
+    project_id: str = Field("", max_length=200)
+    project_title: str = Field("", max_length=300)
+    file_name: str = Field("", max_length=300)
+    editor_kind: str = Field("", max_length=80)
+    title: str = Field("", max_length=500)
+    url: str = Field("", max_length=4000)
+    selected_text: str = Field("", max_length=MAX_SELECTED_TEXT_CHARS)
+    text: str = Field("", max_length=MAX_OVERLEAF_TEXT_CHARS)
+    selection: Optional[dict[str, Any]] = None
+    warning: str = Field("", max_length=500)
+
+
+class BrowserOverleafContextRequest(BaseModel):
+    context: BrowserOverleafContext
+    session_id: str = Field("", max_length=100)
+
+
 def _require_browser_scope(request: Request, scope: str = "browser:read") -> None:
     """Allow normal cookie sessions, or bearer tokens with browser scopes."""
     if not getattr(request.state, "api_token", False):
@@ -95,6 +115,15 @@ def _session_title(page: BrowserPageContext) -> str:
     if len(title) > 70:
         title = title[:67].rstrip() + "..."
     return f"Browser: {title}"
+
+
+def _overleaf_session_title(context: BrowserOverleafContext) -> str:
+    bits = [context.project_title or "Overleaf", context.file_name]
+    title = " / ".join(bit.strip() for bit in bits if bit and bit.strip())
+    title = re.sub(r"\s+", " ", title or context.title or context.url or "Overleaf context")
+    if len(title) > 70:
+        title = title[:67].rstrip() + "..."
+    return f"Overleaf: {title}"
 
 
 def _verify_session_owner(session, owner: Optional[str]) -> None:
@@ -187,7 +216,7 @@ def setup_browser_routes(session_manager=None) -> APIRouter:
                 "page_summary": True,
                 "visible_tab_screenshot": True,
                 "page_actions": False,
-                "overleaf_adapter": False,
+                "overleaf_adapter": True,
             },
         }
 
@@ -343,6 +372,100 @@ def setup_browser_routes(session_manager=None) -> APIRouter:
             "url": page.url,
             "title": page.title,
             **session_payload,
+        }
+
+    @router.post("/overleaf/context")
+    async def overleaf_context(request: Request, body: BrowserOverleafContextRequest):
+        _require_browser_scope(request, "browser:read")
+        owner = _owner(request)
+        context = body.context
+        text = (context.selected_text or context.text or "").strip()
+        if not context.project_id:
+            raise HTTPException(400, "No Overleaf project id was provided")
+        if not text:
+            raise HTTPException(400, "No Overleaf editor text was provided")
+        if session_manager is None:
+            return {
+                "saved": False,
+                "title": _overleaf_session_title(context),
+                "url": context.url,
+                "warning": context.warning,
+            }
+
+        from core.models import ChatMessage
+
+        endpoint_url, model, headers = resolve_endpoint("browser_reasoning", owner=owner)
+        requested_session_id = (body.session_id or "").strip()
+        if requested_session_id:
+            try:
+                session = session_manager.get_session(requested_session_id)
+            except KeyError as error:
+                raise HTTPException(404, "Session not found") from error
+            _verify_session_owner(session, owner)
+            session_id = requested_session_id
+            appended = True
+        else:
+            session_id = str(uuid.uuid4())
+            session = session_manager.create_session(
+                session_id=session_id,
+                name=_overleaf_session_title(context),
+                endpoint_url=endpoint_url or "",
+                model=model or "",
+                rag=False,
+                owner=owner,
+            )
+            if headers:
+                session.headers = dict(headers)
+                session_manager.save_sessions()
+            appended = False
+
+        selected = (context.selected_text or "").strip()
+        captured = selected or context.text
+        scope = "selected text" if selected else "current editor text"
+        message = (
+            "Overleaf editor context for follow-up questions.\n\n"
+            f"Project: {context.project_title or context.project_id}\n"
+            f"Project ID: {context.project_id}\n"
+            f"File: {context.file_name or '(unknown)'}\n"
+            f"URL: {context.url or '(unknown)'}\n"
+            f"Editor source: {context.editor_kind or 'unknown'}\n"
+            f"Captured scope: {scope}\n"
+            f"Warning: {context.warning or '(none)'}\n\n"
+            f"Captured content:\n{_trim(captured, MAX_OVERLEAF_CONTEXT_CHARS)}"
+        )
+        metadata = {
+            "source": "browser_companion",
+            "kind": "overleaf",
+            "url": context.url,
+            "project_id": context.project_id,
+            "file_name": context.file_name,
+            "editor_kind": context.editor_kind,
+        }
+        session.add_message(ChatMessage(role="system", content=message, metadata=metadata))
+        session.add_message(ChatMessage(
+            role="user",
+            content=f"Use this Overleaf {scope} as context for the next request.",
+            metadata=metadata,
+        ))
+        session_manager.save_sessions()
+        try:
+            from src.event_bus import fire_event
+            fire_event("session_created", owner)
+        except Exception:
+            pass
+
+        return {
+            "saved": True,
+            "appended": appended,
+            "session_id": session_id,
+            "session_url": f"/#session-{session_id}",
+            "session_name": session.name,
+            "title": _overleaf_session_title(context),
+            "url": context.url,
+            "file_name": context.file_name,
+            "project_id": context.project_id,
+            "chars": len(captured),
+            "warning": context.warning,
         }
 
     @router.post("/captures/screenshot")

@@ -31,7 +31,8 @@ main {
 
 header,
 .actions,
-.toggles {
+.toggles,
+.overleaf-panel {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -133,6 +134,35 @@ button:disabled {
 
 .actions button {
   flex: 1;
+}
+
+.overleaf-panel {
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--ody-border);
+  border-radius: 6px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--ody-panel) 82%, var(--ody-bg));
+}
+
+.overleaf-panel div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.overleaf-panel strong {
+  color: var(--ody-fg);
+  font-size: 13px;
+}
+
+.overleaf-panel span {
+  color: var(--ody-muted);
+  font-size: 12px;
+}
+
+.overleaf-panel button {
+  flex: 0 0 auto;
 }
 
 #summarize {

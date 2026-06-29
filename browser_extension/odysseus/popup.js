@@ -3,13 +3,15 @@ const els = {
   token: document.getElementById('token'),
   pageSummary: document.getElementById('pageSummary'),
   screenshots: document.getElementById('screenshots'),
+  overleaf: document.getElementById('overleaf'),
   instruction: document.getElementById('instruction'),
   targetSession: document.getElementById('targetSession'),
   status: document.getElementById('status'),
   save: document.getElementById('save'),
   test: document.getElementById('test'),
   summarize: document.getElementById('summarize'),
-  screenshot: document.getElementById('screenshot')
+  screenshot: document.getElementById('screenshot'),
+  overleafCapture: document.getElementById('overleafCapture')
 };
 
 function show(value, isError = false) {
@@ -33,6 +35,18 @@ function showSummaryResult(result) {
     return;
   }
   show((result && result.summary) || result);
+}
+
+function showChatResult(result, fallbackTitle) {
+  if (result && result.saved && result.session_url) {
+    const baseUrl = els.baseUrl.value.trim().replace(/\/+$/, '');
+    const url = `${baseUrl}${result.session_url}`;
+    const verb = result.appended ? 'Added to Odysseus chat' : 'Saved to Odysseus chat';
+    const warning = result.warning ? `\n\n${result.warning}` : '';
+    show(`${verb}:\n${result.session_name || fallbackTitle}\n${url}${warning}`);
+    return;
+  }
+  show(result || 'Done.');
 }
 
 function setThemeVar(name, value) {
@@ -62,7 +76,7 @@ async function refreshTheme() {
 
 async function withBusy(button, label, task) {
   const original = button.textContent;
-  const controls = [els.save, els.test, els.summarize, els.screenshot];
+  const controls = [els.save, els.test, els.summarize, els.screenshot, els.overleafCapture];
   controls.forEach((control) => { control.disabled = true; });
   button.textContent = label;
   document.body.classList.add('busy');
@@ -88,6 +102,7 @@ function formSettings() {
     token: els.token.value,
     pageSummary: els.pageSummary.checked,
     screenshots: els.screenshots.checked,
+    overleaf: els.overleaf.checked,
     targetSessionId: els.targetSession.value
   };
 }
@@ -120,6 +135,7 @@ async function load() {
     els.token.value = settings.token || '';
     els.pageSummary.checked = settings.pageSummary !== false;
     els.screenshots.checked = settings.screenshots !== false;
+    els.overleaf.checked = settings.overleaf !== false;
     renderSessions([], settings.targetSessionId || '');
     if (settings.baseUrl && settings.token) {
       await refreshTheme();
@@ -138,7 +154,13 @@ els.save.addEventListener('click', async () => {
       const settings = await send('settings:set', { settings: formSettings() });
       await refreshTheme();
       await refreshSessions(settings.targetSessionId || '');
-      show({ saved: true, baseUrl: settings.baseUrl, pageSummary: settings.pageSummary, screenshots: settings.screenshots });
+      show({
+        saved: true,
+        baseUrl: settings.baseUrl,
+        pageSummary: settings.pageSummary,
+        screenshots: settings.screenshots,
+        overleaf: settings.overleaf,
+      });
     } catch (error) {
       show(error.message, true);
     }
@@ -182,6 +204,20 @@ els.screenshot.addEventListener('click', async () => {
       await send('settings:set', { settings: formSettings() });
       showPending('Saving screenshot to Odysseus...');
       show(await send('screenshot'));
+    } catch (error) {
+      show(error.message, true);
+    }
+  });
+});
+
+els.overleafCapture.addEventListener('click', async () => {
+  await withBusy(els.overleafCapture, 'Capturing...', async () => {
+    try {
+      showPending('Reading the Overleaf editor...');
+      await send('settings:set', { settings: formSettings() });
+      showPending('Saving Overleaf context to Odysseus...');
+      const result = await send('overleaf:capture');
+      showChatResult(result, 'Overleaf context');
     } catch (error) {
       show(error.message, true);
     }
