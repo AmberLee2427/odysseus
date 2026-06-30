@@ -3437,6 +3437,7 @@ const INTG_TYPES = {
   carddav: { label: 'CardDAV', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
   email:   { label: 'Email',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>' },
   mcp:     { label: 'MCP',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
+  overleaf:{ label: 'Overleaf',icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h6M9 11h5M9 15h7"/></svg>' },
   codex:   { label: 'Codex',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 10.696.453a6.023 6.023 0 0 0-5.75 4.172 6.061 6.061 0 0 0-3.946 2.945 6.024 6.024 0 0 0 .742 7.099 5.98 5.98 0 0 0 .516 4.911 6.046 6.046 0 0 0 6.51 2.9A5.996 5.996 0 0 0 13.26 23.547a6.023 6.023 0 0 0 5.75-4.172 6.061 6.061 0 0 0 3.946-2.945 6.024 6.024 0 0 0-.674-6.609zM13.26 21.047a4.508 4.508 0 0 1-2.886-1.041l.143-.082 4.793-2.769a.777.777 0 0 0 .391-.676V10.34l2.026 1.17a.072.072 0 0 1 .039.061v5.596a4.532 4.532 0 0 1-4.506 4.48zM3.968 17.64a4.473 4.473 0 0 1-.537-3.018l.143.086 4.793 2.769a.79.79 0 0 0 .782 0l5.852-3.379v2.34a.072.072 0 0 1-.029.062l-4.845 2.796a4.532 4.532 0 0 1-6.159-1.656zM2.804 7.922a4.49 4.49 0 0 1 2.348-1.973V11.6a.778.778 0 0 0 .391.676l5.852 3.378-2.026 1.17a.072.072 0 0 1-.068 0L4.456 14.03a4.532 4.532 0 0 1-1.652-6.108zm16.423 3.823L13.375 8.367l2.026-1.17a.072.072 0 0 1 .068 0l4.845 2.796a4.525 4.525 0 0 1-.7 8.08V12.42a.778.778 0 0 0-.387-.676zm2.015-3.025l-.143-.086-4.793-2.769a.79.79 0 0 0-.782 0L9.672 9.243V6.903a.072.072 0 0 1 .029-.062l4.845-2.796a4.525 4.525 0 0 1 6.696 4.675zM8.598 12.66L6.57 11.49a.072.072 0 0 1-.039-.061V5.833a4.525 4.525 0 0 1 7.413-3.48l-.143.082-4.793 2.769a.777.777 0 0 0-.391.676l-.019 6.78zm1.1-2.379l2.607-1.505 2.607 1.505v3.01l-2.607 1.505-2.607-1.505z"/></svg>' },
   claude:  { label: 'Claude',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>' },
   vault:   { label: 'Vault',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
@@ -3517,7 +3518,7 @@ async function initUnifiedIntegrations() {
   }
 
   async function fetchAll() {
-    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes, tokenRes, calendarsRes] = await Promise.all([
+    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes, tokenRes, calendarsRes, latexCredRes] = await Promise.all([
       fetch('/api/auth/integrations', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { integrations: [] }).catch(() => ({ integrations: [] })),
       fetch('/api/calendar/config/accounts', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })),
       fetch('/api/contacts/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
@@ -3527,6 +3528,7 @@ async function initUnifiedIntegrations() {
       fetch('/api/vault/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('/api/tokens', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/calendar/calendars', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { calendars: [] }).catch(() => ({ calendars: [] })),
+      fetch('/api/latex-projects/credentials', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { credentials: [] }).catch(() => ({ credentials: [] })),
     ]);
     const items = [];
     // API integrations
@@ -3570,6 +3572,15 @@ async function initUnifiedIntegrations() {
     for (const srv of mcpList) {
       const statusText = srv.needs_oauth ? 'needs auth' : srv.status === 'connected' ? `${srv.enabled_tool_count}/${srv.tool_count} tools` : srv.status === 'error' ? 'error' : 'disconnected';
       items.push({ type: 'mcp', id: srv.id || srv.name, name: srv.name || 'MCP Server', detail: statusText, enabled: srv.is_enabled !== false, data: srv });
+    }
+    const latexCredentials = latexCredRes.credentials || [];
+    if (latexCredentials.length) {
+      for (const cred of latexCredentials) {
+        const detail = [cred.username || '', cred.credential_id || 'overleaf'].filter(Boolean).join(' - ');
+        items.push({ type: 'overleaf', id: cred.credential_id || 'overleaf', name: 'Overleaf Git', detail, enabled: !!cred.configured, data: cred });
+      }
+    } else {
+      items.push({ type: 'overleaf', id: 'overleaf', name: 'Overleaf Git', detail: 'Not configured', enabled: false, data: { credential_id: 'overleaf' } });
     }
     for (const tok of (Array.isArray(tokenRes) ? tokenRes : [])) {
       const scopes = tok.scopes || [];
@@ -3657,6 +3668,7 @@ async function initUnifiedIntegrations() {
           }
           else if (type === 'email') await fetch(`/api/email/accounts/${id}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'mcp') await fetch(`/api/mcp/servers/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+          else if (type === 'overleaf') await fetch(`/api/latex-projects/credentials/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'codex' || type === 'claude') await fetch(`/api/tokens/${id}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'vault') await fetch('/api/vault/logout', { method: 'POST', credentials: 'same-origin' });
         } catch (_) {}
@@ -3674,9 +3686,76 @@ async function initUnifiedIntegrations() {
     else if (type === 'contacts' || type === 'carddav') showCardDavForm();
     else if (type === 'email') showEmailForm(editId);
     else if (type === 'mcp') showMcpForm(editId);
+    else if (type === 'overleaf') showOverleafForm(editId);
     else if (type === 'codex') showAgentForm('codex', editId);
     else if (type === 'claude') showAgentForm('claude', editId);
     else if (type === 'vault') showVaultForm();
+  }
+
+  async function showOverleafForm(editId) {
+    let current = null;
+    try {
+      const res = await fetch('/api/latex-projects/credentials', { credentials: 'same-origin' });
+      const data = res.ok ? await res.json() : { credentials: [] };
+      current = (data.credentials || []).find(row => row.credential_id === editId) || null;
+    } catch (_) {}
+    const credentialId = current?.credential_id || editId || 'overleaf';
+    const username = current?.username || '';
+    const configured = !!current?.configured;
+    formEl.innerHTML = `
+      <div class="admin-card" style="margin-top:8px">
+        <h2 style="font-size:13px;display:flex;align-items:center;gap:6px;">
+          ${INTG_TYPES.overleaf.icon}
+          Overleaf Git
+        </h2>
+        <div class="admin-toggle-sub" style="margin-bottom:8px">Stores the Git credential encrypted for local LaTeX project pull/push. The token is write-only and is never shown again.</div>
+        <div class="settings-col">
+          <div class="settings-row"><label class="settings-label">Credential ID</label><input id="uf-overleaf-id" class="settings-input" value="${esc(credentialId)}" placeholder="overleaf"></div>
+          <div class="settings-row"><label class="settings-label">Username</label><input id="uf-overleaf-user" class="settings-input" value="${esc(username)}" placeholder="Overleaf email or Git username"></div>
+          <div class="settings-row"><label class="settings-label">Token</label><input id="uf-overleaf-token" class="settings-input" type="password" placeholder="${configured ? 'Leave blank to keep existing token' : 'Overleaf Git token/password'}"></div>
+          <div style="font-size:11px;line-height:1.4;color:color-mix(in srgb, var(--fg) 62%, transparent);padding-left:106px;margin-top:-2px;">Use this credential id from a LaTeX project&apos;s Overleaf metadata. Project metadata stores only the id, not the token.</div>
+          <div class="settings-row" style="margin-top:4px"><button class="admin-btn-sm" id="uf-overleaf-save">Save</button><button class="admin-btn-sm" id="uf-overleaf-cancel" style="opacity:0.7">Cancel</button><span id="uf-overleaf-msg" style="font-size:11px;flex:1;margin-left:8px"></span></div>
+        </div>
+      </div>`;
+    el('uf-overleaf-cancel')?.addEventListener('click', () => { formEl.style.display = 'none'; formEl.innerHTML = ''; });
+    el('uf-overleaf-save')?.addEventListener('click', async () => {
+      const msg = el('uf-overleaf-msg');
+      const nextId = (el('uf-overleaf-id')?.value || 'overleaf').trim();
+      const nextUser = (el('uf-overleaf-user')?.value || '').trim();
+      const token = el('uf-overleaf-token')?.value || '';
+      if (!nextId) { msg.textContent = 'Credential ID required'; msg.style.color = 'var(--red)'; return; }
+      if (!token && !configured) { msg.textContent = 'Token required'; msg.style.color = 'var(--red)'; return; }
+      if (!token && configured && nextId === credentialId && nextUser === username) {
+        msg.textContent = 'Nothing to update';
+        msg.style.color = '';
+        return;
+      }
+      if (!token && configured) {
+        msg.textContent = 'Re-enter token to change id or username';
+        msg.style.color = 'var(--red)';
+        return;
+      }
+      msg.textContent = 'Saving...';
+      msg.style.color = '';
+      try {
+        const response = await fetch('/api/latex-projects/credentials', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential_id: nextId, username: nextUser, token }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+        msg.textContent = 'Saved';
+        msg.style.color = 'var(--green,#50fa7b)';
+        el('uf-overleaf-token').value = '';
+        await renderList();
+        notifyIntegrationsChanged();
+      } catch (error) {
+        msg.textContent = error.message || 'Failed';
+        msg.style.color = 'var(--red)';
+      }
+    });
   }
 
   // ── API form ──

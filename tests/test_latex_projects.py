@@ -106,6 +106,8 @@ def test_credentials_are_encrypted_and_owner_scoped(latex_env):
     assert "secret-token" not in json.dumps(raw)
     assert latex_projects.read_credential("amber", "overleaf")["token"] == "secret-token"
     assert latex_projects.credential_status("bob") == []
+    assert latex_projects.delete_credential("amber", "overleaf") is True
+    assert latex_projects.credential_status("amber") == []
 
 
 def test_latex_routes_require_document_scope_for_api_tokens():

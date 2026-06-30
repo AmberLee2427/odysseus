@@ -84,6 +84,12 @@ def setup_latex_project_routes() -> APIRouter:
             token=body.token,
         )
 
+    @router.delete("/credentials/{credential_id}")
+    async def delete_credential(request: Request, credential_id: str):
+        _require_scope(request, "documents:write")
+        owner = get_current_user(request)
+        return {"ok": latex_projects.delete_credential(owner, credential_id)}
+
     @router.get("/{latex_project_id}/metadata")
     async def read_metadata(request: Request, latex_project_id: str):
         _require_scope(request, "documents:read")

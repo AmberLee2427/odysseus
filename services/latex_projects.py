@@ -301,6 +301,16 @@ def credential_status(owner: str | None) -> list[dict[str, Any]]:
     ]
 
 
+def delete_credential(owner: str | None, credential_id: str) -> bool:
+    path = credentials_path(owner)
+    data = _read_json(path, {})
+    if not isinstance(data, dict) or credential_id not in data:
+        return False
+    data.pop(credential_id, None)
+    _write_json(path, data)
+    return True
+
+
 def _link_project_mirror(owner: str | None, metadata: dict[str, Any]) -> None:
     project_id = metadata.get("odysseus_project_id")
     if not project_id:
