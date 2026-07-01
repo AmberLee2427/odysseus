@@ -392,18 +392,23 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "manage_latex_projects",
-            "description": "Read/manage local LaTeX and Overleaf project metadata, tree, git status, credential STATUS, authenticated Overleaf pulls, and confirmed commit+push back to Overleaf. Use this instead of shell/git clone/git push/grep/read_file for Overleaf work. Never returns token values.",
+            "description": "Read/manage local LaTeX and Overleaf project metadata, tree, text file read/edit/diff, git status, credential STATUS, authenticated Overleaf pulls, and confirmed commit+push back to Overleaf. Use this instead of shell/git clone/git push/grep/read_file for Overleaf work. Never returns token values.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["credential_status", "list", "create", "metadata_read", "metadata_patch", "pull", "push", "commit_and_push", "tree", "status"],
+                        "enum": ["credential_status", "list", "create", "metadata_read", "metadata_patch", "read_file", "write_file", "replace_text", "diff", "pull", "push", "commit_and_push", "tree", "status"],
                         "description": "Action to perform. Use credential_status for 'is Overleaf Git configured?'"
                     },
                     "latex_project_id": {"type": "string", "description": "Local LaTeX project id for metadata/tree/status actions"},
                     "overleaf_project_id": {"type": "string", "description": "Overleaf project id when creating/registering a project"},
                     "title": {"type": "string", "description": "Project title when creating/registering"},
+                    "path": {"type": "string", "description": "Relative file path inside the LaTeX worktree for read_file/write_file/replace_text/diff"},
+                    "content": {"type": "string", "description": "Complete file content for write_file"},
+                    "old_text": {"type": "string", "description": "Exact text to replace for replace_text"},
+                    "new_text": {"type": "string", "description": "Replacement text for replace_text"},
+                    "expected_count": {"type": "integer", "description": "Expected number of matches for replace_text; defaults to 1"},
                     "message": {"type": "string", "description": "Commit message for push/commit_and_push"},
                     "paths": {"type": "array", "items": {"type": "string"}, "description": "Optional relative worktree paths to include when committing before push"},
                     "metadata": {"type": "object", "description": "Metadata patch for metadata_patch"},

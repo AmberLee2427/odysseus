@@ -59,6 +59,60 @@ def test_manage_latex_projects_can_list_tree(latex_env):
     assert result["tree"]["entries"][0]["path"] == "main.tex"
 
 
+def test_manage_latex_projects_reads_edits_and_diffs_relative_files(latex_env, monkeypatch):
+    latex_projects.create_or_update_metadata("amber", {
+        "latex_project_id": "paper",
+        "title": "Paper",
+    })
+    worktree = latex_env / "amber" / "paper" / "worktree"
+    (worktree / ".git").mkdir()
+    (worktree / "bibliography.bib").write_text("@article{old}\n", encoding="utf-8")
+
+    def fake_git(cwd, args, *, check=True):
+        if args == ["diff", "--", "bibliography.bib"]:
+            return "diff --git a/bibliography.bib b/bibliography.bib\n-@article{old}\n+@article{new}"
+        return ""
+
+    monkeypatch.setattr(latex_projects, "_git", fake_git)
+
+    read = asyncio.run(do_manage_latex_projects(
+        json.dumps({"action": "read_file", "latex_project_id": "paper", "path": "bibliography.bib"}),
+        owner="amber",
+    ))
+    assert read["file"]["path"] == "bibliography.bib"
+    assert read["results"] == "@article{old}\n"
+
+    edited = asyncio.run(do_manage_latex_projects(
+        json.dumps({
+            "action": "replace_text",
+            "latex_project_id": "paper",
+            "path": "bibliography.bib",
+            "old_text": "@article{old}",
+            "new_text": "@article{new}",
+        }),
+        owner="amber",
+    ))
+    assert edited["file"]["path"] == "bibliography.bib"
+    assert edited["file"]["replacements"] == 1
+    assert "diff --git" in edited["diff"]["diff"]
+    assert (worktree / "bibliography.bib").read_text(encoding="utf-8") == "@article{new}\n"
+
+
+def test_manage_latex_projects_rejects_file_path_escape(latex_env):
+    latex_projects.create_or_update_metadata("amber", {
+        "latex_project_id": "paper",
+        "title": "Paper",
+    })
+
+    result = asyncio.run(do_manage_latex_projects(
+        json.dumps({"action": "read_file", "latex_project_id": "paper", "path": "../credentials.json"}),
+        owner="amber",
+    ))
+
+    assert result["exit_code"] == 1
+    assert "relative" in result["error"] or "escapes" in result["error"]
+
+
 def test_create_defaults_overleaf_project_to_configured_credential(latex_env):
     latex_projects.store_credential(
         "amber",

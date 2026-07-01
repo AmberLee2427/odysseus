@@ -2218,6 +2218,61 @@ async def do_manage_latex_projects(content: str, owner: Optional[str] = None) ->
             metadata = latex_projects.patch_metadata(owner, project_id, updates)
             return {"results": f"Updated metadata for `{project_id}`.", "metadata": metadata}
 
+        if action in {"read_file", "file_read", "open_file"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            path = str(args.get("path") or args.get("file_path") or "").strip()
+            file_data = latex_projects.read_project_file(owner, project_id, path)
+            return {
+                "results": file_data["content"],
+                "file": file_data,
+            }
+
+        if action in {"write_file", "file_write"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            path = str(args.get("path") or args.get("file_path") or "").strip()
+            content = str(args.get("content") or "")
+            create = bool(args.get("create", True))
+            file_data = latex_projects.write_project_file(owner, project_id, path, content, create=create)
+            diff = latex_projects.diff_project_file(owner, project_id, path)
+            return {
+                "results": f"Wrote `{file_data['path']}` in LaTeX project `{project_id}`.",
+                "file": {k: v for k, v in file_data.items() if k != "content"},
+                "diff": diff,
+            }
+
+        if action in {"replace_text", "file_replace", "edit_file"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            path = str(args.get("path") or args.get("file_path") or "").strip()
+            expected_count = int(args.get("expected_count", 1))
+            file_data = latex_projects.replace_project_file_text(
+                owner,
+                project_id,
+                path,
+                str(args.get("old_text") or ""),
+                str(args.get("new_text") or ""),
+                expected_count=expected_count,
+            )
+            diff = latex_projects.diff_project_file(owner, project_id, path)
+            return {
+                "results": (
+                    f"Updated `{file_data['path']}` in LaTeX project `{project_id}` "
+                    f"with {file_data.get('replacements', 0)} replacement(s)."
+                ),
+                "file": {k: v for k, v in file_data.items() if k != "content"},
+                "diff": diff,
+            }
+
+        if action in {"diff", "file_diff", "git_diff"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            path = str(args.get("path") or args.get("file_path") or "").strip()
+            diff = latex_projects.diff_project_file(owner, project_id, path)
+            shown = diff.get("diff") or "No local diff."
+            return {"results": shown, "diff": diff}
+
         if action in {"pull", "clone", "sync_from_overleaf", "pull_from_overleaf"}:
             if not project_id:
                 return {"error": "latex_project_id is required", "exit_code": 1}
@@ -2292,7 +2347,8 @@ async def do_manage_latex_projects(content: str, owner: Optional[str] = None) ->
         return {
             "error": (
                 f"Unknown action: {action!r}. Use one of: credential_status, "
-                "list, create, metadata_read, metadata_patch, pull, push, tree, status."
+                "list, create, metadata_read, metadata_patch, read_file, write_file, "
+                "replace_text, diff, pull, push, tree, status."
             ),
             "exit_code": 1,
         }

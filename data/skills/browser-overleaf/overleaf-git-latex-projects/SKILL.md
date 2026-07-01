@@ -24,14 +24,18 @@ Use this when the user asks about Overleaf Git credentials, LaTeX project metada
 5. For project metadata, call `manage_latex_projects` with `{"action":"metadata_read","latex_project_id":"..."}`.
 6. To fetch files from Overleaf, call `manage_latex_projects` with `{"action":"pull","latex_project_id":"..."}`. This is the only approved clone/pull path because it injects the stored credential safely.
 7. For a project file overview, call `manage_latex_projects` with `{"action":"tree","latex_project_id":"..."}`.
-8. For local Git cleanliness, call `manage_latex_projects` with `{"action":"status","latex_project_id":"..."}`.
-9. To commit and push user-approved local manuscript changes back to Overleaf, call `manage_latex_projects` with `{"action":"commit_and_push","latex_project_id":"...","message":"..."}`. Do not find the worktree path yourself.
-10. Only patch metadata or create/register projects when the user asks you to change state or gives enough project identifiers to do so.
+8. To inspect a manuscript file, call `manage_latex_projects` with `{"action":"read_file","latex_project_id":"...","path":"bibliography.bib"}`. Use relative paths from the project tree only.
+9. To edit a manuscript file, prefer `{"action":"replace_text","latex_project_id":"...","path":"...","old_text":"...","new_text":"...","expected_count":1}`. Use `write_file` only when replacing the complete file content is intentional.
+10. To review local changes before committing, call `manage_latex_projects` with `{"action":"diff","latex_project_id":"...","path":"..."}`.
+11. For local Git cleanliness, call `manage_latex_projects` with `{"action":"status","latex_project_id":"..."}`.
+12. To commit and push user-approved local manuscript changes back to Overleaf, call `manage_latex_projects` with `{"action":"commit_and_push","latex_project_id":"...","message":"..."}`. Do not find the worktree path yourself.
+13. Only patch metadata or create/register projects when the user asks you to change state or gives enough project identifiers to do so.
 
 ## Pitfalls
 
 - Do not grep the Odysseus repository or data directory for `overleaf`, `token`, or `credential`.
 - Do not use `bash`, `git clone`, `git pull`, `git push`, `curl`, or raw filesystem commands for Overleaf Git operations; use `manage_latex_projects` action `pull` or `commit_and_push`.
+- Do not use generic `read_file`, `grep`, or shell paths to inspect or edit manuscript files. Use `manage_latex_projects` `tree`, `read_file`, `replace_text`, `write_file`, and `diff`.
 - Do not tell the user the token value; it is intentionally write-only.
 - Do not push changes back to Overleaf unless the user explicitly confirms it. After confirmation, use `manage_latex_projects` action `commit_and_push`; never use shell Git.
 - Do not assume Google Drive, generic browser documents, or arbitrary websites use this Overleaf-specific workflow.

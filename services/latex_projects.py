@@ -225,6 +225,90 @@ def project_tree(owner: str | None, latex_project_id: str, *, max_entries: int =
     return {"latex_project_id": latex_project_id, "worktree_path": str(worktree), "entries": entries}
 
 
+def read_project_file(owner: str | None, latex_project_id: str, path: str) -> dict[str, Any]:
+    file_path, rel = _project_file_path(owner, latex_project_id, path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "LaTeX project file not found")
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, "Only UTF-8 text files can be read through this tool") from exc
+    return {
+        "latex_project_id": latex_project_id,
+        "path": rel,
+        "content": content,
+        "size": file_path.stat().st_size,
+        "role": _file_role(rel, read_metadata(owner, latex_project_id)),
+    }
+
+
+def write_project_file(
+    owner: str | None,
+    latex_project_id: str,
+    path: str,
+    content: str,
+    *,
+    create: bool = True,
+) -> dict[str, Any]:
+    file_path, rel = _project_file_path(owner, latex_project_id, path)
+    if not create and not file_path.exists():
+        raise HTTPException(404, "LaTeX project file not found")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(str(content), encoding="utf-8")
+    return read_project_file(owner, latex_project_id, rel)
+
+
+def replace_project_file_text(
+    owner: str | None,
+    latex_project_id: str,
+    path: str,
+    old_text: str,
+    new_text: str,
+    *,
+    expected_count: int = 1,
+) -> dict[str, Any]:
+    current = read_project_file(owner, latex_project_id, path)
+    old = str(old_text)
+    if not old:
+        raise HTTPException(400, "old_text is required for replace_text")
+    count = current["content"].count(old)
+    if expected_count >= 0 and count != expected_count:
+        raise HTTPException(400, f"Expected {expected_count} match(es), found {count}")
+    if count == 0:
+        raise HTTPException(400, "old_text was not found")
+    updated = current["content"].replace(old, str(new_text), count if expected_count >= 0 else -1)
+    result = write_project_file(owner, latex_project_id, current["path"], updated, create=False)
+    result["replacements"] = count if expected_count < 0 else expected_count
+    return result
+
+
+def diff_project_file(owner: str | None, latex_project_id: str, path: str = "") -> dict[str, Any]:
+    metadata = read_metadata(owner, latex_project_id)
+    worktree = _assert_under(Path(metadata["worktree_path"]), project_root(owner, latex_project_id))
+    if not (worktree / ".git").exists():
+        raise HTTPException(400, "Worktree is not a Git repo yet. Pull the Overleaf project first.")
+    args = ["diff", "--"]
+    rel = ""
+    if path:
+        _, rel = _project_file_path(owner, latex_project_id, path)
+        args.append(rel)
+    diff = _git(worktree, args, check=False)
+    return {"latex_project_id": latex_project_id, "path": rel, "diff": diff}
+
+
+def _project_file_path(owner: str | None, latex_project_id: str, path: str) -> tuple[Path, str]:
+    metadata = read_metadata(owner, latex_project_id)
+    worktree = _assert_under(Path(metadata["worktree_path"]), project_root(owner, latex_project_id))
+    raw = str(path or "").strip()
+    if not raw:
+        raise HTTPException(400, "A relative file path is required")
+    rel_path = Path(raw)
+    if rel_path.is_absolute() or any(part == ".." for part in rel_path.parts):
+        raise HTTPException(400, "File path must be relative to the LaTeX worktree")
+    file_path = _assert_under(worktree / rel_path, worktree)
+    return file_path, file_path.relative_to(worktree).as_posix()
+
+
 def _skip_path(path: Path, rel: str) -> bool:
     parts = set(Path(rel).parts)
     if parts.intersection(TREE_SKIP_DIRS):

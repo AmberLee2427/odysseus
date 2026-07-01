@@ -119,7 +119,7 @@ BUILTIN_TOOL_DESCRIPTIONS: Dict[str, str] = {
     "manage_webhooks": "Webhook management: list, add, delete, enable, or disable webhooks.",
     "manage_tokens": "API token management: list, create, or delete API access tokens.",
     "manage_documents": "List, read, delete, or tidy documents in the editor panel. action='list' returns clickable rows (most-recent first) so the user can open any doc by clicking. action='read' (aka view/open/get) with document_id returns the content. action='delete' with document_id removes a doc (only way to delete). Use this for ANY 'show/read/list/open my documents/docs/files/notes' request — never shell or curl.",
-    "manage_latex_projects": "Read and manage local LaTeX/Overleaf project metadata, Git credential STATUS, project tree, git status, authenticated Overleaf pulls/clones, and explicit commit+push back to Overleaf. Use for Overleaf Git credential checks, LaTeX project registration, metadata, pull from Overleaf, push to Overleaf, project tree, and git status. credential_status returns only configured ids and usernames, never tokens. Prefer this over bash, git clone, git push, grep, read_file, or app_api for Overleaf/LaTeX project state.",
+    "manage_latex_projects": "Read and manage local LaTeX/Overleaf project metadata, Git credential STATUS, project tree, text file read/edit/diff by relative path, git status, authenticated Overleaf pulls/clones, and explicit commit+push back to Overleaf. Use for Overleaf Git credential checks, LaTeX project registration, metadata, pull from Overleaf, edit manuscript files, push to Overleaf, project tree, and git status. credential_status returns only configured ids and usernames, never tokens. Prefer this over bash, git clone, git push, grep, read_file, or app_api for Overleaf/LaTeX project state and file edits.",
     "manage_research": "List, read/open, or delete saved DEEP RESEARCH results from the Library. action='list' returns clickable [query](#research-<id>) rows (most-recent first). action='read' (aka open/view/get) with id returns the report + sources. action='delete' with id removes it. Use this for ANY 'open/read/find/delete my research / that report / the research on X' request. NOTE: this is for EXISTING research; to START new research use trigger_research.",
     "manage_settings": "Change ANY real app setting (the ones the Settings panel writes) so the user never has to open it: TTS voice/provider/speed, STT, search engine + result count, default/teacher/task/utility/vision/image/research models, image quality, reminder channel (browser/email/ntfy), agent timeout/tool-call budget, and more. action=set with key (friendly aliases ok: voice, 'search engine', 'default model', 'teacher model', 'image quality', 'reminder channel'...) + value; get/list/reset too. Also toggles tools on/off (disable_tool/enable_tool/list_tools). Secrets/API keys are read-only. Use for any 'change my…/set my…/use X for…/turn on…' preference request.",
     "create_session": "Create a new chat with a name and model.",
@@ -378,7 +378,8 @@ class ToolIndex:
                    "git credentials", "credential configured", "credential status",
                    "latex project", "project tree", "main.tex", "pull overleaf",
                    "clone overleaf", "fetch overleaf", "push overleaf",
-                   "commit overleaf"}):
+                   "commit overleaf", "edit latex", "edit overleaf",
+                   "bibliography.bib", ".tex", ".bib"}):
             {"manage_latex_projects", "manage_skills"},
         # Chat/session management. "rename" alone maps to documents below, so a
         # request like "rename the last 12 sessions/chats" needs these session
