@@ -110,7 +110,7 @@ def test_manage_latex_projects_pull_uses_stored_credential(latex_env, monkeypatc
 
     assert calls
     assert calls[0]["args"] == ["clone", "https://git.overleaf.com/abc123", "."]
-    assert calls[0]["username"] == "amber@example.com"
+    assert calls[0]["username"] == "git"
     assert calls[0]["token"] == "super-secret-token"
     assert result["head"] == "abcde12345"
     assert "main.tex" in result["results"]

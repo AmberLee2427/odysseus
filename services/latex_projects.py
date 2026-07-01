@@ -278,7 +278,7 @@ def pull_from_overleaf(owner: str | None, latex_project_id: str) -> dict[str, An
         output = _git_with_credential(
             worktree,
             ["clone", remote, "."],
-            username=credential.get("username") or "git",
+            username="git",
             token=credential["token"],
         )
     else:
@@ -290,7 +290,7 @@ def pull_from_overleaf(owner: str | None, latex_project_id: str) -> dict[str, An
         output = _git_with_credential(
             worktree,
             ["pull", "--ff-only"],
-            username=credential.get("username") or "git",
+            username="git",
             token=credential["token"],
         )
 
