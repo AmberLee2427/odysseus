@@ -2154,6 +2154,135 @@ async def do_manage_logseq(content: str, owner: Optional[str] = None) -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# LaTeX / Overleaf project management tool
+# ---------------------------------------------------------------------------
+
+async def do_manage_latex_projects(content: str, owner: Optional[str] = None) -> Dict:
+    """Read/manage local LaTeX project metadata without exposing secrets."""
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+
+    action = str(args.get("action") or "credential_status").replace("-", "_").strip().lower()
+    project_id = str(args.get("latex_project_id") or args.get("project_id") or "").strip()
+
+    try:
+        from services import latex_projects
+
+        if action in {"credential_status", "credentials", "overleaf_git_status"}:
+            creds = latex_projects.credential_status(owner)
+            if not creds:
+                return {"results": "No Overleaf Git credentials are configured.", "credentials": []}
+            lines = ["Configured Overleaf Git credentials:"]
+            for cred in creds:
+                credential_id = cred.get("credential_id") or "overleaf"
+                username = cred.get("username") or "(no username)"
+                state = "configured" if cred.get("configured") else "not configured"
+                lines.append(f"- {credential_id}: {state}, username {username}")
+            return {"results": "\n".join(lines), "credentials": creds}
+
+        if action in {"list", "list_projects"}:
+            projects = latex_projects.list_projects(owner)
+            if not projects:
+                return {"results": "No local LaTeX projects are registered.", "projects": []}
+            lines = ["Registered LaTeX projects:"]
+            for meta in projects:
+                lines.append(
+                    f"- {meta.get('latex_project_id')}: "
+                    f"{meta.get('title') or meta.get('overleaf_project_id') or '(untitled)'}"
+                )
+            return {"results": "\n".join(lines), "projects": projects}
+
+        if action in {"create", "register", "upsert"}:
+            if not project_id and not args.get("overleaf_project_id"):
+                return {"error": "latex_project_id or overleaf_project_id is required", "exit_code": 1}
+            payload = dict(args)
+            payload.pop("action", None)
+            metadata = latex_projects.create_or_update_metadata(owner, payload)
+            return {"results": f"Registered LaTeX project `{metadata.get('latex_project_id')}`.", "metadata": metadata}
+
+        if action in {"metadata_read", "read_metadata", "metadata", "read"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            metadata = latex_projects.read_metadata(owner, project_id)
+            return {"results": json.dumps(metadata, indent=2), "metadata": metadata}
+
+        if action in {"metadata_patch", "patch_metadata", "patch", "update_metadata"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            updates = args.get("metadata") if isinstance(args.get("metadata"), dict) else {
+                k: v for k, v in args.items()
+                if k not in {"action", "latex_project_id", "project_id"}
+            }
+            metadata = latex_projects.patch_metadata(owner, project_id, updates)
+            return {"results": f"Updated metadata for `{project_id}`.", "metadata": metadata}
+
+        if action in {"pull", "clone", "sync_from_overleaf", "pull_from_overleaf"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            pulled = latex_projects.pull_from_overleaf(owner, project_id)
+            entries = (pulled.get("tree") or {}).get("entries") or []
+            lines = [
+                f"Pulled Overleaf project `{project_id}`.",
+                f"HEAD: {pulled.get('head') or '(unknown)'}",
+                f"Worktree: {pulled.get('worktree_path')}",
+            ]
+            if entries:
+                lines.append("Files:")
+                for row in entries[:50]:
+                    suffix = "/" if row.get("type") == "dir" else ""
+                    lines.append(f"- {row.get('path')}{suffix}")
+            return {"results": "\n".join(lines), **pulled}
+
+        if action in {"tree", "project_tree", "latex_project_tree"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            max_entries = int(args.get("max_entries") or 400)
+            tree = latex_projects.project_tree(owner, project_id, max_entries=max_entries)
+            entries = tree.get("entries") or []
+            if not entries:
+                return {"results": f"No files found in `{project_id}` worktree.", "tree": tree}
+            lines = [f"LaTeX project tree for `{project_id}`:"]
+            for row in entries[:max_entries]:
+                suffix = "/" if row.get("type") == "dir" else ""
+                lines.append(f"- {row.get('path')}{suffix}")
+            if tree.get("truncated"):
+                lines.append("- ... truncated")
+            return {"results": "\n".join(lines), "tree": tree}
+
+        if action in {"status", "git_status"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            metadata = latex_projects.read_metadata(owner, project_id)
+            git = latex_projects.git_status(owner, project_id)
+            status = {"latex_project_id": project_id, "metadata": metadata, "git": git}
+            return {"results": json.dumps(status, indent=2), "metadata": metadata, "git": git}
+
+        return {
+            "error": (
+                f"Unknown action: {action!r}. Use one of: credential_status, "
+                "list, create, metadata_read, metadata_patch, pull, tree, status."
+            ),
+            "exit_code": 1,
+        }
+    except Exception as e:
+        logger.error(f"manage_latex_projects error: {e}")
+        message = str(e)
+        if "Git authentication tokens" in message or "returned error: 403" in message:
+            return {
+                "error": (
+                    "Overleaf rejected the stored Git credential. Open Settings -> "
+                    "Integrations -> Overleaf Git and save a current Overleaf Git "
+                    "authentication token for this account/project."
+                ),
+                "details": message,
+                "exit_code": 1,
+            }
+        return {"error": str(e), "exit_code": 1}
+
+
+# ---------------------------------------------------------------------------
 # Calendar tool — CalDAV-backed event CRUD
 # ---------------------------------------------------------------------------
 

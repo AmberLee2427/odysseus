@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -101,6 +102,14 @@ def clean_metadata(raw: dict[str, Any], *, owner: str | None) -> dict[str, Any]:
     worktree = worktree_path(owner, latex_project_id)
     overleaf = raw.get("overleaf") if isinstance(raw.get("overleaf"), dict) else {}
     files = raw.get("files") if isinstance(raw.get("files"), dict) else {}
+    credential_id = str(overleaf.get("credential_id") or raw.get("credential_id") or "").strip()[:120]
+    if not credential_id and (overleaf.get("project_id") or raw.get("overleaf_project_id")):
+        status = credential_status(owner)
+        if any(row.get("credential_id") == "overleaf" and row.get("configured") for row in status):
+            credential_id = "overleaf"
+        elif len(status) == 1 and status[0].get("configured"):
+            credential_id = str(status[0].get("credential_id") or "")
+
     metadata = {
         "latex_project_id": latex_project_id,
         "owner": owner,
@@ -112,7 +121,7 @@ def clean_metadata(raw: dict[str, Any], *, owner: str | None) -> dict[str, Any]:
         "overleaf": {
             "project_id": str(overleaf.get("project_id") or raw.get("overleaf_project_id") or "").strip()[:200],
             "git_remote": str(overleaf.get("git_remote") or raw.get("git_remote") or "").strip()[:2000],
-            "credential_id": str(overleaf.get("credential_id") or raw.get("credential_id") or "").strip()[:120],
+            "credential_id": credential_id,
             "last_pulled_commit": str(overleaf.get("last_pulled_commit") or "").strip()[:200],
             "last_synced_at": str(overleaf.get("last_synced_at") or "").strip()[:80],
         },
@@ -248,12 +257,99 @@ def git_status(owner: str | None, latex_project_id: str) -> dict[str, Any]:
     return {"is_git": True, "clean": not changes, "branch": branch, "head": head, "changes": changes}
 
 
+
+def pull_from_overleaf(owner: str | None, latex_project_id: str) -> dict[str, Any]:
+    metadata = read_metadata(owner, latex_project_id)
+    overleaf = metadata.get("overleaf") or {}
+    remote = str(overleaf.get("git_remote") or "").strip()
+    credential_id = str(overleaf.get("credential_id") or "overleaf").strip() or "overleaf"
+    if not remote:
+        raise HTTPException(400, "Overleaf git_remote is not configured")
+    if not remote.startswith("https://git.overleaf.com/"):
+        raise HTTPException(400, "Only Overleaf HTTPS Git remotes are supported")
+    credential = read_credential(owner, credential_id)
+    worktree = _assert_under(Path(metadata["worktree_path"]), project_root(owner, latex_project_id))
+    worktree.mkdir(parents=True, exist_ok=True)
+
+    if not (worktree / ".git").exists():
+        entries = [p for p in worktree.iterdir()]
+        if entries:
+            raise HTTPException(400, "Worktree is not a Git repo and is not empty")
+        output = _git_with_credential(
+            worktree,
+            ["clone", remote, "."],
+            username=credential.get("username") or "git",
+            token=credential["token"],
+        )
+    else:
+        current_remote = _git(worktree, ["remote", "get-url", "origin"], check=False).strip()
+        if not current_remote:
+            _git(worktree, ["remote", "add", "origin", remote])
+        elif current_remote != remote:
+            _git(worktree, ["remote", "set-url", "origin", remote])
+        output = _git_with_credential(
+            worktree,
+            ["pull", "--ff-only"],
+            username=credential.get("username") or "git",
+            token=credential["token"],
+        )
+
+    head = _git(worktree, ["rev-parse", "HEAD"], check=False).strip()
+    updated = patch_metadata(owner, latex_project_id, {
+        "overleaf": {
+            "last_pulled_commit": head,
+            "last_synced_at": _now(),
+            "credential_id": credential_id,
+        }
+    })
+    return {
+        "latex_project_id": latex_project_id,
+        "worktree_path": str(worktree),
+        "head": head,
+        "output": output,
+        "metadata": updated,
+        "tree": project_tree(owner, latex_project_id),
+    }
+
 def _git(cwd: Path, args: list[str], *, check: bool = True) -> str:
     proc = subprocess.run(["git", *args], cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if check and proc.returncode != 0:
         raise HTTPException(400, (proc.stderr or "Git command failed").strip()[:500])
     return proc.stdout.strip()
 
+
+
+def _git_with_credential(cwd: Path, args: list[str], *, username: str, token: str) -> str:
+    with tempfile.TemporaryDirectory(prefix="odysseus-git-askpass-") as tmp:
+        askpass = Path(tmp) / "askpass.sh"
+        askpass.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "*Username*) printf '%s\\n' \"$GIT_USERNAME\" ;;\n"
+            "*) printf '%s\\n' \"$GIT_PASSWORD\" ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        askpass.chmod(0o700)
+        env = os.environ.copy()
+        env.update({
+            "GIT_ASKPASS": str(askpass),
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_USERNAME": username,
+            "GIT_PASSWORD": token,
+        })
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+    if proc.returncode != 0:
+        message = (proc.stderr or proc.stdout or "Git command failed").replace(token, "<redacted>")
+        raise HTTPException(400, message.strip()[:1000])
+    return ((proc.stdout or "") + (proc.stderr or "")).replace(token, "<redacted>").strip()
 
 def store_credential(owner: str | None, credential_id: str, *, username: str = "", token: str) -> dict[str, Any]:
     credential_id = _safe_segment(credential_id, "overleaf")

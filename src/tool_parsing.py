@@ -179,6 +179,11 @@ _TOOL_NAME_MAP = {
     "logseq": "manage_logseq",
     "knowledge_graph": "manage_logseq",
     "knowledge": "manage_logseq",
+    "manage_latex_projects": "manage_latex_projects",
+    "latex_projects": "manage_latex_projects",
+    "latex_project": "manage_latex_projects",
+    "overleaf": "manage_latex_projects",
+    "overleaf_git": "manage_latex_projects",
 }
 
 _MISFENCED_WEB_TOOL_NAMES = {
@@ -470,7 +475,7 @@ def parse_tool_blocks(text: str) -> List[ToolBlock]:
             if block:
                 blocks.append(block)
                 continue
-        blocks.append(ToolBlock(tag, content))
+        blocks.append(ToolBlock(_TOOL_NAME_MAP.get(tag, tag), content))
 
     # Pattern 2: [TOOL_CALL] blocks (only if no fenced blocks found)
     if not blocks:

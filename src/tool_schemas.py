@@ -391,6 +391,29 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "manage_latex_projects",
+            "description": "Read/manage local LaTeX and Overleaf project metadata, tree, git status, credential STATUS, and authenticated Overleaf pulls. Use this instead of shell/git clone/grep/read_file for Overleaf work. Never returns token values.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["credential_status", "list", "create", "metadata_read", "metadata_patch", "pull", "tree", "status"],
+                        "description": "Action to perform. Use credential_status for 'is Overleaf Git configured?'"
+                    },
+                    "latex_project_id": {"type": "string", "description": "Local LaTeX project id for metadata/tree/status actions"},
+                    "overleaf_project_id": {"type": "string", "description": "Overleaf project id when creating/registering a project"},
+                    "title": {"type": "string", "description": "Project title when creating/registering"},
+                    "metadata": {"type": "object", "description": "Metadata patch for metadata_patch"},
+                    "max_entries": {"type": "integer", "description": "Maximum tree entries to return"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_models",
             "description": "List all available AI models across configured endpoints. Optionally filter by keyword.",
             "parameters": {
@@ -1383,7 +1406,7 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
     elif tool_type in ("manage_tasks", "manage_skills", "api_call",
                         "manage_endpoints", "manage_mcp", "manage_webhooks",
                         "manage_tokens", "manage_documents", "manage_settings",
-                        "manage_logseq"):
+                        "manage_logseq", "manage_latex_projects"):
         content = json.dumps(args)
     elif tool_type == "ask_teacher":
         content = args.get("model", "auto") + "\n" + args.get("problem", "")
