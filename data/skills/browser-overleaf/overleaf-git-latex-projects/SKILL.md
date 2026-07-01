@@ -25,14 +25,15 @@ Use this when the user asks about Overleaf Git credentials, LaTeX project metada
 6. To fetch files from Overleaf, call `manage_latex_projects` with `{"action":"pull","latex_project_id":"..."}`. This is the only approved clone/pull path because it injects the stored credential safely.
 7. For a project file overview, call `manage_latex_projects` with `{"action":"tree","latex_project_id":"..."}`.
 8. For local Git cleanliness, call `manage_latex_projects` with `{"action":"status","latex_project_id":"..."}`.
-9. Only patch metadata or create/register projects when the user asks you to change state or gives enough project identifiers to do so.
+9. To commit and push user-approved local manuscript changes back to Overleaf, call `manage_latex_projects` with `{"action":"commit_and_push","latex_project_id":"...","message":"..."}`. Do not find the worktree path yourself.
+10. Only patch metadata or create/register projects when the user asks you to change state or gives enough project identifiers to do so.
 
 ## Pitfalls
 
 - Do not grep the Odysseus repository or data directory for `overleaf`, `token`, or `credential`.
-- Do not use `bash`, `git clone`, `git pull`, `curl`, or raw filesystem commands for Overleaf Git operations; use `manage_latex_projects` action `pull`.
+- Do not use `bash`, `git clone`, `git pull`, `git push`, `curl`, or raw filesystem commands for Overleaf Git operations; use `manage_latex_projects` action `pull` or `commit_and_push`.
 - Do not tell the user the token value; it is intentionally write-only.
-- Do not push changes back to Overleaf unless a separate push tool exists and the user explicitly confirms the diff.
+- Do not push changes back to Overleaf unless the user explicitly confirms it. After confirmation, use `manage_latex_projects` action `commit_and_push`; never use shell Git.
 - Do not assume Google Drive, generic browser documents, or arbitrary websites use this Overleaf-specific workflow.
 
 ## Verification

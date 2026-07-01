@@ -123,6 +123,7 @@ def clean_metadata(raw: dict[str, Any], *, owner: str | None) -> dict[str, Any]:
             "git_remote": str(overleaf.get("git_remote") or raw.get("git_remote") or "").strip()[:2000],
             "credential_id": credential_id,
             "last_pulled_commit": str(overleaf.get("last_pulled_commit") or "").strip()[:200],
+            "last_pushed_commit": str(overleaf.get("last_pushed_commit") or "").strip()[:200],
             "last_synced_at": str(overleaf.get("last_synced_at") or "").strip()[:80],
         },
         "tags": _clean_tags(raw.get("tags") or ["manuscript", "latex"]),
@@ -257,7 +258,6 @@ def git_status(owner: str | None, latex_project_id: str) -> dict[str, Any]:
     return {"is_git": True, "clean": not changes, "branch": branch, "head": head, "changes": changes}
 
 
-
 def pull_from_overleaf(owner: str | None, latex_project_id: str) -> dict[str, Any]:
     metadata = read_metadata(owner, latex_project_id)
     overleaf = metadata.get("overleaf") or {}
@@ -310,6 +310,128 @@ def pull_from_overleaf(owner: str | None, latex_project_id: str) -> dict[str, An
         "metadata": updated,
         "tree": project_tree(owner, latex_project_id),
     }
+
+
+def push_to_overleaf(
+    owner: str | None,
+    latex_project_id: str,
+    *,
+    message: str,
+    paths: list[str] | None = None,
+) -> dict[str, Any]:
+    metadata = read_metadata(owner, latex_project_id)
+    overleaf = metadata.get("overleaf") or {}
+    remote = str(overleaf.get("git_remote") or "").strip()
+    credential_id = str(overleaf.get("credential_id") or "overleaf").strip() or "overleaf"
+    if not remote:
+        raise HTTPException(400, "Overleaf git_remote is not configured")
+    if not remote.startswith("https://git.overleaf.com/"):
+        raise HTTPException(400, "Only Overleaf HTTPS Git remotes are supported")
+    commit_message = re.sub(r"\s+", " ", str(message or "")).strip()
+    if not commit_message:
+        raise HTTPException(400, "A commit message is required before pushing to Overleaf")
+    credential = read_credential(owner, credential_id)
+    worktree = _assert_under(Path(metadata["worktree_path"]), project_root(owner, latex_project_id))
+    if not (worktree / ".git").exists():
+        raise HTTPException(400, "Worktree is not a Git repo yet. Pull the Overleaf project first.")
+
+    current_remote = _git(worktree, ["remote", "get-url", "origin"], check=False).strip()
+    if not current_remote:
+        _git(worktree, ["remote", "add", "origin", remote])
+    elif current_remote != remote:
+        _git(worktree, ["remote", "set-url", "origin", remote])
+
+    before = git_status(owner, latex_project_id)
+    commit_output = ""
+    committed = False
+    if before.get("changes"):
+        _ensure_git_identity(worktree, credential)
+        commit_paths = _clean_commit_paths(paths or [], worktree)
+        if commit_paths:
+            _git(worktree, ["add", "--", *commit_paths])
+        else:
+            _git(worktree, ["add", "-A"])
+        staged_stat = _git(worktree, ["diff", "--cached", "--stat"], check=False)
+        staged_names = _git(worktree, ["diff", "--cached", "--name-status"], check=False)
+        if not staged_names.strip():
+            raise HTTPException(400, "No changes were staged for commit")
+        commit_output = _git(worktree, ["commit", "-m", commit_message[:1000]])
+        committed = True
+    else:
+        staged_stat = ""
+        staged_names = ""
+
+    head = _git(worktree, ["rev-parse", "HEAD"], check=False).strip()
+    try:
+        push_output = _git_with_credential(
+            worktree,
+            ["push", "origin", "HEAD"],
+            username="git",
+            token=credential["token"],
+        )
+    except HTTPException as exc:
+        failed_status = git_status(owner, latex_project_id)
+        detail = getattr(exc, "detail", str(exc))
+        raise HTTPException(
+            400,
+            {
+                "message": (
+                    "Local commit is ready, but Overleaf rejected the push. "
+                    "Check that the stored Overleaf Git token is current and that "
+                    "this Overleaf account has Git write access to the project."
+                ),
+                "git": failed_status,
+                "head": head,
+                "committed": committed,
+                "details": detail,
+            },
+        ) from exc
+    updated = patch_metadata(owner, latex_project_id, {
+        "overleaf": {
+            "last_pushed_commit": head,
+            "last_synced_at": _now(),
+            "credential_id": credential_id,
+        }
+    })
+    after = git_status(owner, latex_project_id)
+    return {
+        "latex_project_id": latex_project_id,
+        "worktree_path": str(worktree),
+        "committed": committed,
+        "head": head,
+        "staged_stat": staged_stat,
+        "staged_files": staged_names.splitlines(),
+        "commit_output": commit_output,
+        "push_output": push_output,
+        "metadata": updated,
+        "git": after,
+    }
+
+
+def _clean_commit_paths(paths: list[str], worktree: Path) -> list[str]:
+    cleaned: list[str] = []
+    for value in paths:
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        path = Path(raw)
+        if path.is_absolute() or any(part == ".." for part in path.parts):
+            raise HTTPException(400, "Commit paths must be relative to the LaTeX worktree")
+        resolved = _assert_under(worktree / path, worktree)
+        cleaned.append(resolved.relative_to(worktree).as_posix())
+    return cleaned
+
+
+def _ensure_git_identity(worktree: Path, credential: dict[str, str]) -> None:
+    name = _git(worktree, ["config", "--get", "user.name"], check=False).strip()
+    email = _git(worktree, ["config", "--get", "user.email"], check=False).strip()
+    username = str(credential.get("username") or "").strip()
+    if not name:
+        _git(worktree, ["config", "user.name", "Odysseus"])
+    if not email:
+        fallback = username if "@" in username else "odysseus@local"
+        _git(worktree, ["config", "user.email", fallback])
+
 
 def _git(cwd: Path, args: list[str], *, check: bool = True) -> str:
     proc = subprocess.run(["git", *args], cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

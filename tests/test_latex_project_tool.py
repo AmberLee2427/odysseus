@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from services import latex_projects
 from src.agent_tools import parse_tool_blocks
@@ -114,6 +115,126 @@ def test_manage_latex_projects_pull_uses_stored_credential(latex_env, monkeypatc
     assert calls[0]["token"] == "super-secret-token"
     assert result["head"] == "abcde12345"
     assert "main.tex" in result["results"]
+
+
+def test_manage_latex_projects_commit_and_push_uses_stored_credential(latex_env, monkeypatch):
+    latex_projects.store_credential(
+        "amber",
+        credential_id="overleaf",
+        username="amber@example.com",
+        token="super-secret-token",
+    )
+    latex_projects.create_or_update_metadata("amber", {
+        "latex_project_id": "paper",
+        "title": "Paper",
+        "overleaf_project_id": "abc123",
+    })
+    worktree = Path(latex_projects.read_metadata("amber", "paper")["worktree_path"])
+    (worktree / ".git").mkdir()
+    (worktree / "bibliography.bib").write_text("@article{test}\n", encoding="utf-8")
+    state = {"committed": False}
+    credential_calls = []
+    git_calls = []
+
+    def fake_git(cwd, args, *, check=True):
+        git_calls.append(args)
+        if args == ["remote", "get-url", "origin"]:
+            return "https://git.overleaf.com/abc123"
+        if args == ["status", "--short", "--branch"]:
+            if state["committed"]:
+                return "## main...origin/main"
+            return "## main...origin/main\n M bibliography.bib"
+        if args == ["diff", "--cached", "--stat"]:
+            return " bibliography.bib | 1 +"
+        if args == ["diff", "--cached", "--name-status"]:
+            return "M\tbibliography.bib"
+        if args == ["commit", "-m", "Add campaign bibliography entry"]:
+            state["committed"] = True
+            return "[main abcde12] Add campaign bibliography entry"
+        if args == ["rev-parse", "HEAD"]:
+            return "abcde12345"
+        return ""
+
+    def fake_git_with_credential(cwd, args, *, username, token):
+        credential_calls.append({"cwd": cwd, "args": args, "username": username, "token": token})
+        return "pushed"
+
+    monkeypatch.setattr(latex_projects, "_git", fake_git)
+    monkeypatch.setattr(latex_projects, "_git_with_credential", fake_git_with_credential)
+
+    result = asyncio.run(do_manage_latex_projects(
+        json.dumps({
+            "action": "commit_and_push",
+            "latex_project_id": "paper",
+            "message": "Add campaign bibliography entry",
+        }),
+        owner="amber",
+    ))
+
+    assert ["add", "-A"] in git_calls
+    assert ["commit", "-m", "Add campaign bibliography entry"] in git_calls
+    assert credential_calls[0]["args"] == ["push", "origin", "HEAD"]
+    assert credential_calls[0]["username"] == "git"
+    assert credential_calls[0]["token"] == "super-secret-token"
+    assert result["head"] == "abcde12345"
+    assert "bibliography.bib" in result["results"]
+    assert "super-secret-token" not in json.dumps(result)
+
+
+def test_manage_latex_projects_push_failure_reports_local_commit_state(latex_env, monkeypatch):
+    latex_projects.store_credential(
+        "amber",
+        credential_id="overleaf",
+        username="amber@example.com",
+        token="super-secret-token",
+    )
+    latex_projects.create_or_update_metadata("amber", {
+        "latex_project_id": "paper",
+        "title": "Paper",
+        "overleaf_project_id": "abc123",
+    })
+    worktree = Path(latex_projects.read_metadata("amber", "paper")["worktree_path"])
+    (worktree / ".git").mkdir()
+    (worktree / "bibliography.bib").write_text("@article{test}\n", encoding="utf-8")
+    state = {"committed": False}
+
+    def fake_git(cwd, args, *, check=True):
+        if args == ["remote", "get-url", "origin"]:
+            return "https://git.overleaf.com/abc123"
+        if args == ["status", "--short", "--branch"]:
+            if state["committed"]:
+                return "## main...origin/main [ahead 1]"
+            return "## main...origin/main\n M bibliography.bib"
+        if args == ["diff", "--cached", "--name-status"]:
+            return "M\tbibliography.bib"
+        if args == ["commit", "-m", "Add campaign bibliography entry"]:
+            state["committed"] = True
+            return "[main abcde12] Add campaign bibliography entry"
+        if args == ["rev-parse", "HEAD"]:
+            return "abcde12345"
+        return ""
+
+    def fake_git_with_credential(cwd, args, *, username, token):
+        raise HTTPException(400, "fatal: unable to access remote: 403")
+
+    monkeypatch.setattr(latex_projects, "_git", fake_git)
+    monkeypatch.setattr(latex_projects, "_git_with_credential", fake_git_with_credential)
+
+    result = asyncio.run(do_manage_latex_projects(
+        json.dumps({
+            "action": "commit_and_push",
+            "latex_project_id": "paper",
+            "message": "Add campaign bibliography entry",
+        }),
+        owner="amber",
+    ))
+
+    assert result["exit_code"] == 1
+    assert result["committed"] is True
+    assert result["head"] == "abcde12345"
+    assert result["git"]["branch"] == "main...origin/main [ahead 1]"
+    assert "write access" in result["error"]
+    assert "super-secret-token" not in json.dumps(result)
 
 
 def test_overleaf_alias_parses_to_latex_project_tool():

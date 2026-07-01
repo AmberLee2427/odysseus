@@ -2235,6 +2235,36 @@ async def do_manage_latex_projects(content: str, owner: Optional[str] = None) ->
                     lines.append(f"- {row.get('path')}{suffix}")
             return {"results": "\n".join(lines), **pulled}
 
+        if action in {"push", "commit_and_push", "push_to_overleaf", "sync_to_overleaf"}:
+            if not project_id:
+                return {"error": "latex_project_id is required", "exit_code": 1}
+            message = str(args.get("message") or args.get("commit_message") or "").strip()
+            raw_paths = args.get("paths") or args.get("files") or []
+            if isinstance(raw_paths, str):
+                paths = [raw_paths]
+            elif isinstance(raw_paths, list):
+                paths = [str(item) for item in raw_paths]
+            else:
+                return {"error": "paths/files must be a string or list of strings", "exit_code": 1}
+            pushed = latex_projects.push_to_overleaf(owner, project_id, message=message, paths=paths)
+            lines = [
+                f"Pushed Overleaf project `{project_id}`.",
+                f"HEAD: {pushed.get('head') or '(unknown)'}",
+                f"Worktree: {pushed.get('worktree_path')}",
+            ]
+            if pushed.get("committed"):
+                lines.append("Committed local changes before pushing.")
+            else:
+                lines.append("No local changes needed a new commit; pushed existing HEAD.")
+            staged_files = pushed.get("staged_files") or []
+            if staged_files:
+                lines.append("Files committed:")
+                for row in staged_files[:50]:
+                    lines.append(f"- {row}")
+            if pushed.get("push_output"):
+                lines.append(str(pushed["push_output"]))
+            return {"results": "\n".join(lines), **pushed}
+
         if action in {"tree", "project_tree", "latex_project_tree"}:
             if not project_id:
                 return {"error": "latex_project_id is required", "exit_code": 1}
@@ -2262,19 +2292,27 @@ async def do_manage_latex_projects(content: str, owner: Optional[str] = None) ->
         return {
             "error": (
                 f"Unknown action: {action!r}. Use one of: credential_status, "
-                "list, create, metadata_read, metadata_patch, pull, tree, status."
+                "list, create, metadata_read, metadata_patch, pull, push, tree, status."
             ),
             "exit_code": 1,
         }
     except Exception as e:
         logger.error(f"manage_latex_projects error: {e}")
+        detail = getattr(e, "detail", None)
+        if isinstance(detail, dict):
+            return {
+                "error": detail.get("message") or "LaTeX project operation failed",
+                **detail,
+                "exit_code": 1,
+            }
         message = str(e)
         if "Git authentication tokens" in message or "returned error: 403" in message:
             return {
                 "error": (
-                    "Overleaf rejected the stored Git credential. Open Settings -> "
-                    "Integrations -> Overleaf Git and save a current Overleaf Git "
-                    "authentication token for this account/project."
+                    "Overleaf rejected the stored Git credential or this account does "
+                    "not have Git write access. Open Settings -> Integrations -> "
+                    "Overleaf Git and save a current token, or check the project "
+                    "permission in Overleaf."
                 ),
                 "details": message,
                 "exit_code": 1,

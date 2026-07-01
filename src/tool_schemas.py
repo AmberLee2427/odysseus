@@ -392,18 +392,20 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "manage_latex_projects",
-            "description": "Read/manage local LaTeX and Overleaf project metadata, tree, git status, credential STATUS, and authenticated Overleaf pulls. Use this instead of shell/git clone/grep/read_file for Overleaf work. Never returns token values.",
+            "description": "Read/manage local LaTeX and Overleaf project metadata, tree, git status, credential STATUS, authenticated Overleaf pulls, and confirmed commit+push back to Overleaf. Use this instead of shell/git clone/git push/grep/read_file for Overleaf work. Never returns token values.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["credential_status", "list", "create", "metadata_read", "metadata_patch", "pull", "tree", "status"],
+                        "enum": ["credential_status", "list", "create", "metadata_read", "metadata_patch", "pull", "push", "commit_and_push", "tree", "status"],
                         "description": "Action to perform. Use credential_status for 'is Overleaf Git configured?'"
                     },
                     "latex_project_id": {"type": "string", "description": "Local LaTeX project id for metadata/tree/status actions"},
                     "overleaf_project_id": {"type": "string", "description": "Overleaf project id when creating/registering a project"},
                     "title": {"type": "string", "description": "Project title when creating/registering"},
+                    "message": {"type": "string", "description": "Commit message for push/commit_and_push"},
+                    "paths": {"type": "array", "items": {"type": "string"}, "description": "Optional relative worktree paths to include when committing before push"},
                     "metadata": {"type": "object", "description": "Metadata patch for metadata_patch"},
                     "max_entries": {"type": "integer", "description": "Maximum tree entries to return"}
                 },
